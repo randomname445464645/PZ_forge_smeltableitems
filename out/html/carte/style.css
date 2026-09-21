@@ -1,0 +1,251 @@
+/* Carte PZ together - feuille de style unique, aucune dependance externe. */
+
+:root {
+  --fond:    #14161a;
+  --panneau: #1d2026;
+  --trait:   #31363f;
+  --texte:   #e6e8ec;
+  --faible:  #9aa3b2;
+  --accent:  #d8a24a;
+  --largeur-panneau: 340px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--fond);
+  color: var(--texte);
+  font: 13px/1.45 system-ui, "Segoe UI", sans-serif;
+}
+
+/* ---------------------------------------------------------------- carte -- */
+
+#carte {
+  position: absolute;
+  inset: 0 var(--largeur-panneau) 0 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  /* Le glisser-deposer natif du navigateur sur les tuiles bloquait le pan. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.replie #carte { inset: 0; }
+#carte.glisse { cursor: grabbing; }
+
+#plan, #rues, #marqueurs {
+  position: absolute;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+}
+#plan   { z-index: 1; }
+#rues   { z-index: 2; pointer-events: none; }
+#marqueurs { z-index: 3; pointer-events: none; }
+
+/* Tuiles : positionnees en pixels CSS, jamais dans un conteneur transforme. */
+.tuile {
+  position: absolute;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  /* Par defaut on laisse le navigateur filtrer : en reduction, le plus proche
+     voisin jette des pixels et fait fourmiller la carte. */
+  image-rendering: auto;
+}
+/* .net est pose par le moteur quand on agrandit au-dela du 1:1 : la on veut
+   des pixels francs, pas un flou d'interpolation. */
+#plan.net .tuile {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ------------------------------------------------------------ marqueurs -- */
+
+/* Ancre de taille nulle posee EXACTEMENT sur la case monde. La pastille et
+   l'etiquette sont positionnees autour, donc l'etiquette ne decale jamais
+   l'icone : c'est ce qui mettait les marqueurs au mauvais endroit avant. */
+.mq {
+  position: absolute;
+  width: 0; height: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.mq i {
+  position: absolute;
+  left: -13px; top: -13px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, .6);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .55);
+  background-size: 18px 18px;
+  background-repeat: no-repeat;
+  background-position: center;
+  image-rendering: pixelated;
+}
+.mq span {
+  display: none;
+  position: absolute;
+  left: 0; top: 16px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, .7);
+  pointer-events: none;
+}
+.mq.avec-nom span { display: block; }
+
+/* Marqueur selectionne : reticule pour lever toute ambiguite sur la case. */
+.mq.selection i { border-color: #fff; }
+.mq.selection::before,
+.mq.selection::after {
+  content: '';
+  position: absolute;
+  background: #fff;
+  box-shadow: 0 0 2px #000;
+}
+.mq.selection::before { left: -24px; top: -1px; width: 48px; height: 1px; }
+.mq.selection::after  { left: -1px; top: -24px; width: 1px; height: 48px; }
+
+.mq-top     i { background-color: #ff4d3d; background-image: url(../icons/top.png?v=4); }
+.mq-or      i { background-color: #d8a24a; background-image: url(../icons/or.png?v=4); }
+.mq-billets i { background-color: #5fbf72; background-image: url(../icons/billets.png?v=4); }
+.mq-valeur  i { background-color: #c98bdc; background-image: url(../icons/valeur.png?v=4); }
+.mq-armes   i { background-color: #d05a4a; background-image: url(../icons/armes.png?v=4); }
+.mq-medical i { background-color: #e86f9e; background-image: url(../icons/medical.png?v=4); }
+.mq-outils  i { background-color: #e0a33c; background-image: url(../icons/outils.png?v=4); }
+.mq-bouffe  i { background-color: #8fd14f; background-image: url(../icons/bouffe.png?v=4); }
+.mq-essence i { background-color: #4fc3d9; background-image: url(../icons/essence.png?v=4); }
+.mq-labo    i { background-color: #9fe0c0; background-image: url(../icons/labo.png?v=4); }
+
+/* ----------------------------------------------------------------- hud --- */
+
+#hud {
+  position: absolute;
+  left: 10px; bottom: 10px;
+  z-index: 5;
+  background: rgba(0, 0, 0, .72);
+  border: 1px solid var(--trait);
+  border-radius: 5px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  line-height: 1.6;
+}
+#hud .coord { font-size: 14px; }
+#hud b { color: var(--accent); }
+#hud .detail { color: var(--faible); font-size: 11px; }
+
+/* ------------------------------------------------------------- panneau --- */
+
+#panneau {
+  position: absolute;
+  top: 0; right: 0;
+  width: var(--largeur-panneau);
+  height: 100%;
+  background: var(--panneau);
+  border-left: 1px solid var(--trait);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+body.replie #panneau { transform: translateX(100%); }
+
+#panneau h1 {
+  font-size: 14px;
+  margin: 0;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--trait);
+}
+
+/* Bouton de repli : place HORS du panneau, sinon il disparait avec lui et on
+   ne peut plus le rouvrir. */
+#replier {
+  position: absolute;
+  top: 8px;
+  right: calc(var(--largeur-panneau) + 8px);
+  z-index: 11;
+  width: 30px; height: 28px;
+  padding: 0;
+  line-height: 1;
+  background: rgba(0, 0, 0, .65);
+}
+body.replie #replier { right: 8px; }
+.bloc { padding: 10px 14px; border-bottom: 1px solid var(--trait); }
+.bloc + .bloc { border-top: 0; }
+
+#filtres { display: flex; flex-wrap: wrap; gap: 2px 0; }
+#filtres label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 50%;
+  color: var(--faible);
+  font-size: 12px;
+  cursor: pointer;
+}
+#filtres label .nom { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+#filtres .nb { font-style: normal; color: #6f7888; font-size: 11px; }
+
+.pastille {
+  display: inline-block;
+  width: 16px; height: 16px;
+  flex: 0 0 16px;
+  border-radius: 50%;
+  background-size: 11px 11px;
+  background-repeat: no-repeat;
+  background-position: center;
+  image-rendering: pixelated;
+}
+
+.ligne-boutons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+button {
+  background: #2b303a;
+  color: var(--texte);
+  border: 1px solid var(--trait);
+  border-radius: 4px;
+  padding: 5px 9px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { background: #353b47; }
+
+input[type=text], select {
+  background: #12141a;
+  border: 1px solid var(--trait);
+  color: var(--texte);
+  border-radius: 4px;
+  padding: 5px 7px;
+  font: inherit;
+}
+#coordX, #coordY { width: 74px; }
+select { width: 100%; }
+
+.case-calque {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 8px; color: var(--faible); font-size: 12px; cursor: pointer;
+}
+
+#liste { flex: 1; overflow: auto; }
+#liste .vide { color: var(--faible); padding: 14px; }
+.ligne {
+  padding: 7px 14px;
+  border-bottom: 1px solid #262a32;
+  cursor: pointer;
+}
+.ligne:hover { background: #252932; }
+.ligne.active { background: #333a47; }
+.ligne .titre { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.ligne .meta { color: var(--faible); font-size: 11px; margin-top: 2px; }
+.ligne .desc { color: #7d8697; font-size: 11px; margin-top: 2px; }
+
+.erreur {
+  position: absolute; z-index: 99; left: 20px; top: 20px;
+  background: #3a1d1d; border: 1px solid #a33; padding: 12px; border-radius: 4px;
+}

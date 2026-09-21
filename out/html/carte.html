@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carte PZ together</title>
+<link rel="icon" href="favicon.ico">
+<link rel="stylesheet" href="carte/style.css?v=4">
+</head>
+<body>
+
+<div id="carte">
+  <div id="plan"></div>
+  <canvas id="rues"></canvas>
+  <div id="marqueurs"></div>
+</div>
+
+<button id="replier" title="Replier ou deplier le panneau">&#9776;</button>
+
+<div id="hud">
+  <div class="coord">x <b id="hudX">-</b> &nbsp; y <b id="hudY">-</b></div>
+  <div class="detail" id="hudZoom">-</div>
+  <div class="detail" id="hudCompte">-</div>
+</div>
+
+<div id="panneau">
+  <h1>Carte PZ together</h1>
+
+  <div class="bloc">
+    <div id="filtres"></div>
+    <div class="ligne-boutons">
+      <button id="toutCocher">Tout</button>
+      <button id="rienCocher">Rien</button>
+      <button id="voirTout">Tout voir</button>
+      <button id="slugger">Slugger</button>
+    </div>
+    <label class="case-calque">
+      <input type="checkbox" id="calqueRues"> noms de rues
+    </label>
+  </div>
+
+  <div class="bloc">
+    <div class="ligne-boutons" style="margin-top:0">
+      <input type="text" id="coordX" placeholder="x" inputmode="numeric">
+      <input type="text" id="coordY" placeholder="y" inputmode="numeric">
+      <button id="allerCoord">Aller</button>
+    </div>
+    <div class="ligne-boutons">
+      <select id="villes"><option value="">aller a une ville moddee...</option></select>
+    </div>
+  </div>
+
+  <div id="liste"></div>
+</div>
+
+<script type="module" src="carte/app.js?v=4"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# --- Sorties de rendu -------------------------------------------------------
+# Les pyramides de tuiles pesent des centaines de Mo et se regenerent avec
+# pzmap2dzi. Seul le code du viewer est versionne.
+out/html/map_data/
+out/html/map_data_sqr1/
+out/texture/
+out2/
+out3/
+
+# --- Environnement ----------------------------------------------------------
+.venv/
+__pycache__/
+*.pyc
+
+# --- Historique amont de pzmap2dzi ------------------------------------------
+# Le clone d'origine (cff29546/pzmap2dzi) est conserve sous ce nom pour pouvoir
+# suivre l'amont, mais il n'a pas sa place dans ce depot.
+pzmap2dzi/.git-upstream/
+
+# --- Divers -----------------------------------------------------------------
+*.pending
+*.empty
+
+# Captures de la doc amont de pzmap2dzi, 7 Mo de gifs sans rapport avec ce projet.
+pzmap2dzi/docs/img/
