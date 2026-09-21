@@ -19,10 +19,16 @@ RACINE = os.path.dirname(os.path.realpath(__file__))
 # Les tuiles et les icones ne changent jamais : cache long.
 # Le code de la carte change a chaque retouche : jamais de cache.
 CACHE_LONG = ('.webp', '.png', '.jpg')
-SANS_CACHE = ('.html', '.js', '.css', '.json', '.dzi')
+SANS_CACHE = ('.html', '.js', '.css', '.json', '.dzi', '.webmanifest')
 
 
 class Handler(SimpleHTTPRequestHandler):
+    # HTTP/1.1 : connexions persistantes. Indispensable quand une vue charge
+    # des dizaines de tuiles, et exige par certains navigateurs pour accepter
+    # un service worker. La taille est toujours annoncee pour les fichiers,
+    # la condition de HTTP/1.1 est donc remplie.
+    protocol_version = 'HTTP/1.1'
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=RACINE, **kwargs)
 
@@ -42,6 +48,8 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 Handler.extensions_map.setdefault('.webp', 'image/webp')
+# Sans ce type MIME, Chrome ignore le manifeste et refuse d'installer la PWA.
+Handler.extensions_map.setdefault('.webmanifest', 'application/manifest+json')
 Handler.extensions_map.setdefault('.dzi', 'application/xml')
 
 if __name__ == '__main__':
