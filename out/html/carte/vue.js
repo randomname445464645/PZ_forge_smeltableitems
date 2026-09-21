@@ -16,22 +16,37 @@
 //    voisin en reduction, c'est ce qui faisait fourmiller la carte.
 
 import {
-  EMPRISE, pyramidesActives,
-  niveauPour, facteurNiveau, tailleNiveau, urlTuile, tuileExiste,
+  EMPRISE, pyramidesActives, mode,
+  mondeVersPlanX, mondeVersPlanY, planVersMondeX, planVersMondeY,
+  niveauPour, facteurNiveau, tailleNiveau, urlTuile, tuileExiste, coteCasePlan,
 } from './geometrie.js';
 
-export const ZOOM_MIN = -6;   // echelle 1/64 : la carte entiere tient en 312 px
-export const ZOOM_MAX = 3;    // echelle 8    : 8 px par case
+// Bornes de zoom par mode. Elles ne sont pas les memes parce qu'une unite de
+// plan ne vaut pas la meme chose : une case en vue de dessus, un pixel de
+// pyramide en iso, ou une case mesure 128 px de large. L'ecart entre les deux
+// jeux de bornes est exactement l'ecartZoomModes de geometrie.js, 7 crans.
+// En iso la pleine resolution est atteinte au zoom 0 : une case y mesure alors
+// 64 px de cote apparent, contre 2 px seulement en vue de dessus. Le mode iso
+// peut donc monter beaucoup plus haut sans rien inventer. On le laisse aller
+// deux crans au-dela du 1:1, soit un agrandissement x4, le meme que celui que
+// s'autorise deja la vue de dessus (source 2 px/case, maximum 8 px/case).
+const BORNES = {
+  dessus: { min: -6, max: 3 },    // de 1/64 a 8 px par case
+  iso:    { min: -12, max: 2 },   // de 1/64 a 256 px par case
+};
+
+export function zoomMin() { return BORNES[mode].min; }
+export function zoomMax() { return BORNES[mode].max; }
 
 export const vue = {
-  zoom: -2,       // echelle = 2^zoom, en px CSS par case monde
-  panX: 0,        // position ecran (px CSS) de la case monde x = 0
+  zoom: -2,       // echelle = 2^zoom, en px CSS par unite de plan
+  panX: 0,        // position ecran (px CSS) de l'unite de plan x = 0
   panY: 0,
   largeur: 0,     // taille du viewport en px CSS
   hauteur: 0,
 };
 
-/** Echelle courante : px CSS par case monde. Toujours une puissance de deux. */
+/** Echelle courante : px CSS par unite de plan. Toujours une puissance de deux. */
 export function echelle() {
   return 2 ** vue.zoom;
 }
@@ -47,16 +62,39 @@ export function boostDpr() {
 
 // --- conversions -----------------------------------------------------------
 
-export const mondeVersEcranX = x => vue.panX + x * echelle();
-export const mondeVersEcranY = y => vue.panY + y * echelle();
-export const ecranVersMondeX = sx => (sx - vue.panX) / echelle();
-export const ecranVersMondeY = sy => (sy - vue.panY) / echelle();
+// --- plan <-> ecran (lineaire, identique dans les deux modes) --------------
+export const planVersEcranX = px => vue.panX + px * echelle();
+export const planVersEcranY = py => vue.panY + py * echelle();
+export const ecranVersPlanX = sx => (sx - vue.panX) / echelle();
+export const ecranVersPlanY = sy => (sy - vue.panY) / echelle();
+
+// --- monde <-> ecran (passe par le plan) -----------------------------------
+// Attention, ces fonctions prennent MAINTENANT les deux coordonnees : en iso
+// l'abscisse ecran depend de x ET de y. Un appel a un seul argument donnerait
+// un resultat faux sans rien signaler.
+export const mondeVersEcranX = (x, y) => planVersEcranX(mondeVersPlanX(x, y));
+export const mondeVersEcranY = (x, y) => planVersEcranY(mondeVersPlanY(x, y));
+export const ecranVersMondeX = (sx, sy) => planVersMondeX(ecranVersPlanX(sx), ecranVersPlanY(sy));
+export const ecranVersMondeY = (sx, sy) => planVersMondeY(ecranVersPlanX(sx), ecranVersPlanY(sy));
 
 /** Centre de la vue, en coordonnees monde. */
 export function centreMonde() {
+  const cx = vue.largeur / 2, cy = vue.hauteur / 2;
+  return { x: ecranVersMondeX(cx, cy), y: ecranVersMondeY(cx, cy) };
+}
+
+/**
+ * Boite englobante monde de ce qui est visible a l'ecran.
+ * En iso le rectangle de l'ecran devient un losange en coordonnees monde :
+ * on prend la boite de ses quatre coins, ce qui est conservateur.
+ */
+export function empriseMondeVisible(marge = 0) {
+  const c = [[0, 0], [vue.largeur, 0], [0, vue.hauteur], [vue.largeur, vue.hauteur]];
+  const xs = c.map(([a, b]) => ecranVersMondeX(a, b));
+  const ys = c.map(([a, b]) => ecranVersMondeY(a, b));
   return {
-    x: ecranVersMondeX(vue.largeur / 2),
-    y: ecranVersMondeY(vue.hauteur / 2),
+    x0: Math.min(...xs) - marge, x1: Math.max(...xs) + marge,
+    y0: Math.min(...ys) - marge, y1: Math.max(...ys) + marge,
   };
 }
 
@@ -72,7 +110,8 @@ function normaliserPan() {
   vue.panY = Math.round(vue.panY);
   const e = echelle();
   // On garde toujours un bout de carte a l'ecran, sans interdire le
-  // debordement de Raven Creek sous la carte vanilla.
+  // debordement de Raven Creek sous la carte vanilla. EMPRISE est en unites
+  // de plan, donc valable dans les deux modes.
   const marge = 200;
   const minX = -EMPRISE.x1 * e + marge, maxX = -EMPRISE.x0 * e + vue.largeur - marge;
   const minY = -EMPRISE.y1 * e + marge, maxY = -EMPRISE.y0 * e + vue.hauteur - marge;
@@ -88,35 +127,52 @@ export function deplacer(dxEcran, dyEcran) {
 
 /** Zoom d'un cran (+1 ou -1) en gardant fixe le point ecran (sx, sy). */
 export function zoomer(delta, sx, sy) {
-  const nouveau = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, vue.zoom + delta));
+  const nouveau = Math.max(zoomMin(), Math.min(zoomMax(), vue.zoom + delta));
   if (nouveau === vue.zoom) return false;
-  const wx = ecranVersMondeX(sx), wy = ecranVersMondeY(sy);
+  const px = ecranVersPlanX(sx), py = ecranVersPlanY(sy);
   vue.zoom = nouveau;
   const e = echelle();
-  vue.panX = sx - wx * e;
-  vue.panY = sy - wy * e;
+  vue.panX = sx - px * e;
+  vue.panY = sy - py * e;
   normaliserPan();
   return true;
 }
 
-/** Centre la vue sur une coordonnee monde, avec un zoom optionnel. */
+/** Centre la vue sur une coordonnee MONDE, avec un zoom optionnel. */
 export function centrerSur(x, y, zoom) {
-  if (zoom !== undefined) vue.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(zoom)));
+  if (zoom !== undefined) vue.zoom = Math.max(zoomMin(), Math.min(zoomMax(), Math.round(zoom)));
   const e = echelle();
-  vue.panX = vue.largeur / 2 - x * e;
-  vue.panY = vue.hauteur / 2 - y * e;
+  vue.panX = vue.largeur / 2 - mondeVersPlanX(x, y) * e;
+  vue.panY = vue.hauteur / 2 - mondeVersPlanY(x, y) * e;
   normaliserPan();
 }
 
 /** Plus grand palier de zoom dans lequel le rectangle monde tient entierement. */
 export function cadrerSur(x0, y0, x1, y1, marge = 80) {
-  const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+  const xs = [], ys = [];
+  for (const [a, b] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
+    xs.push(mondeVersPlanX(a, b)); ys.push(mondeVersPlanY(a, b));
+  }
+  const w = Math.max(1, Math.max(...xs) - Math.min(...xs));
+  const h = Math.max(1, Math.max(...ys) - Math.min(...ys));
   const voulu = Math.min(
     (vue.largeur - 2 * marge) / w,
     (vue.hauteur - 2 * marge) / h,
   );
   const z = Math.floor(Math.log2(Math.max(1e-6, voulu)));
   centrerSur((x0 + x1) / 2, (y0 + y1) / 2, z);
+}
+
+/** Cadre la vue sur toute l'emprise, exprimee en unites de plan. */
+export function cadrerEmprise(marge = 20) {
+  const w = Math.max(1, EMPRISE.x1 - EMPRISE.x0);
+  const h = Math.max(1, EMPRISE.y1 - EMPRISE.y0);
+  const voulu = Math.min((vue.largeur - 2 * marge) / w, (vue.hauteur - 2 * marge) / h);
+  vue.zoom = Math.max(zoomMin(), Math.min(zoomMax(), Math.floor(Math.log2(Math.max(1e-9, voulu)))));
+  const e = echelle();
+  vue.panX = vue.largeur / 2 - ((EMPRISE.x0 + EMPRISE.x1) / 2) * e;
+  vue.panY = vue.hauteur / 2 - ((EMPRISE.y0 + EMPRISE.y1) / 2) * e;
+  normaliserPan();
 }
 
 // --- moteur de tuiles ------------------------------------------------------
@@ -126,6 +182,15 @@ let conteneur = null;
 
 export function initTuiles(element) {
   conteneur = element;
+}
+
+/**
+ * Vide le cache de tuiles. Indispensable au changement de mode : les URLs, les
+ * positions et les tailles changent toutes, et une tuile de l'ancien mode
+ * laissee en place resterait affichee au mauvais endroit.
+ */
+export function viderTuiles() {
+  for (const [cle, img] of tuiles) { img.remove(); tuiles.delete(cle); }
 }
 
 /**
@@ -150,21 +215,21 @@ export function dessinerTuiles() {
 
   for (const p of actives) {
     const niveau = niveauPour(p, vue.zoom, boost);
-    const f = facteurNiveau(p, niveau);          // cases monde par px d'image
+    const f = facteurNiveau(p, niveau);          // unites de plan par px d'image
     const taille = tailleNiveau(p, niveau);
-    const spanMonde = p.tailleTuile * f;         // cases monde par tuile
+    const spanPlan = p.tailleTuile * f;          // unites de plan par tuile
 
-    // Fenetre visible, en coordonnees monde, ramenee dans la pyramide.
-    const vx0 = Math.max(p.mondeX, ecranVersMondeX(0));
-    const vy0 = Math.max(p.mondeY, ecranVersMondeY(0));
-    const vx1 = Math.min(p.mondeX1, ecranVersMondeX(vue.largeur));
-    const vy1 = Math.min(p.mondeY1, ecranVersMondeY(vue.hauteur));
+    // Fenetre visible, en unites de plan, ramenee dans la pyramide.
+    const vx0 = Math.max(p.planX, ecranVersPlanX(0));
+    const vy0 = Math.max(p.planY, ecranVersPlanY(0));
+    const vx1 = Math.min(p.planX1, ecranVersPlanX(vue.largeur));
+    const vy1 = Math.min(p.planY1, ecranVersPlanY(vue.hauteur));
     if (vx1 <= vx0 || vy1 <= vy0) continue;
 
-    const tx0 = Math.floor((vx0 - p.mondeX) / spanMonde);
-    const ty0 = Math.floor((vy0 - p.mondeY) / spanMonde);
-    const tx1 = Math.floor((vx1 - 1e-6 - p.mondeX) / spanMonde);
-    const ty1 = Math.floor((vy1 - 1e-6 - p.mondeY) / spanMonde);
+    const tx0 = Math.floor((vx0 - p.planX) / spanPlan);
+    const ty0 = Math.floor((vy0 - p.planY) / spanPlan);
+    const tx1 = Math.floor((vx1 - 1e-6 - p.planX) / spanPlan);
+    const ty1 = Math.floor((vy1 - 1e-6 - p.planY) / spanPlan);
 
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
@@ -179,8 +244,8 @@ export function dessinerTuiles() {
         // en pixels d'image est inferieure a p.tailleTuile, ne pas l'etirer.
         const largeurImg = Math.min(p.tailleTuile, taille.w - tx * p.tailleTuile);
         const hauteurImg = Math.min(p.tailleTuile, taille.h - ty * p.tailleTuile);
-        const gauche = vue.panX + (p.mondeX + tx * spanMonde) * e;
-        const haut = vue.panY + (p.mondeY + ty * spanMonde) * e;
+        const gauche = vue.panX + (p.planX + tx * spanPlan) * e;
+        const haut = vue.panY + (p.planY + ty * spanPlan) * e;
 
         let img = tuiles.get(cle);
         if (!img) {
@@ -221,8 +286,13 @@ export function infoRendu() {
   if (!base) return null;
   const niveau = niveauPour(base, vue.zoom, boost);
   const f = facteurNiveau(base, niveau);
+  // Cote apparent d'une case, en px CSS : la seule grandeur comparable entre
+  // les deux modes. Voir coteCasePlan dans geometrie.js.
+  const tailleCase = coteCasePlan() * echelle();
   return {
     zoom: vue.zoom,
+    mode,
+    tailleCase,
     echelle: echelle(),
     niveau,
     niveauMax: base.niveauMax,

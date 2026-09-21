@@ -5,7 +5,8 @@
 // 263 Ko au total, charges a la demande a la premiere activation.
 // Les points sont deja en coordonnees monde, aucune conversion a faire.
 
-import { vue, echelle, mondeVersEcranX, mondeVersEcranY } from './vue.js';
+import { vue, echelle, mondeVersEcranX, mondeVersEcranY,
+         empriseMondeVisible } from './vue.js';
 
 // Seules Greenport et Maplewood fournissent des noms de rues cote mods :
 // Trelai a bien un dossier streets/ mais sans marks.json, et les six autres
@@ -16,8 +17,10 @@ const SOURCES = [
   'map_data/mod_maps/Maplewood_B42/streets/marks.json',
 ];
 
-const ZOOM_MIN_TRACE = -4;      // en dessous c'est un plat de spaghettis
-const ZOOM_MIN_NOMS = -2;       // les noms ne sont lisibles qu'a partir de la
+// Seuils exprimes en taille de case apparente (px CSS par case), pour valoir
+// dans les deux modes : le zoom brut differe de 7 crans entre dessus et iso.
+const CASE_MIN_TRACE = 1 / 16;  // en dessous c'est un plat de spaghettis
+const CASE_MIN_NOMS = 1 / 4;    // les noms ne sont lisibles qu'a partir de la
 
 let canvas = null, ctx = null;
 let rues = null;                // null = pas encore charge
@@ -56,6 +59,11 @@ export function basculerRues(valeur) {
   return Promise.resolve();
 }
 
+/** Largeur apparente d'une case du jeu, en px CSS, quel que soit le mode. */
+function taillleCase() {
+  return Math.abs(mondeVersEcranX(1, 0) - mondeVersEcranX(0, 0));
+}
+
 export function dessinerRues() {
   if (!canvas) return;
   const dpr = window.devicePixelRatio || 1;
@@ -67,11 +75,10 @@ export function dessinerRues() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, vue.largeur, vue.hauteur);
-  if (!actif || !rues || vue.zoom < ZOOM_MIN_TRACE) return;
+  if (!actif || !rues || taillleCase() < CASE_MIN_TRACE) return;
 
   const e = echelle();
-  const mx0 = (0 - vue.panX) / e, my0 = (0 - vue.panY) / e;
-  const mx1 = (vue.largeur - vue.panX) / e, my1 = (vue.hauteur - vue.panY) / e;
+  const { x0: mx0, y0: my0, x1: mx1, y1: my1 } = empriseMondeVisible(0);
 
   const visibles = rues.filter(r => r.x1 >= mx0 && r.x0 <= mx1 && r.y1 >= my0 && r.y0 <= my1);
 
@@ -83,13 +90,14 @@ export function dessinerRues() {
     ctx.lineWidth = Math.max(1, r.epaisseur * e);
     ctx.beginPath();
     for (let i = 0; i < r.points.length; i++) {
-      const sx = mondeVersEcranX(r.points[i].x), sy = mondeVersEcranY(r.points[i].y);
+      const pt = r.points[i];
+      const sx = mondeVersEcranX(pt.x, pt.y), sy = mondeVersEcranY(pt.x, pt.y);
       if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
     }
     ctx.stroke();
   }
 
-  if (vue.zoom < ZOOM_MIN_NOMS) return;
+  if (taillleCase() < CASE_MIN_NOMS) return;
 
   // Noms, poses sur le segment le plus long de chaque rue visible a l'ecran.
   ctx.font = '600 12px system-ui, sans-serif';
@@ -103,8 +111,9 @@ export function dessinerRues() {
     if (!r.nom) continue;
     let meilleur = null, meilleureLongueur = 0;
     for (let i = 1; i < r.points.length; i++) {
-      const ax = mondeVersEcranX(r.points[i - 1].x), ay = mondeVersEcranY(r.points[i - 1].y);
-      const bx = mondeVersEcranX(r.points[i].x), by = mondeVersEcranY(r.points[i].y);
+      const pa = r.points[i - 1], pb = r.points[i];
+      const ax = mondeVersEcranX(pa.x, pa.y), ay = mondeVersEcranY(pa.x, pa.y);
+      const bx = mondeVersEcranX(pb.x, pb.y), by = mondeVersEcranY(pb.x, pb.y);
       const L = Math.hypot(bx - ax, by - ay);
       const cx = (ax + bx) / 2, cy = (ay + by) / 2;
       if (cx < 0 || cy < 0 || cx > vue.largeur || cy > vue.hauteur) continue;

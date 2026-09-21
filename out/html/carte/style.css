@@ -100,6 +100,59 @@ body.replie #carte { inset: 0; }
 }
 .mq.avec-nom span { display: block; }
 
+/* Suivi du loot : la pastille s'eteint tant que le repop n'est pas fait, puis
+   se souligne de vert quand le lieu redevient pillable. */
+.mq.pille i { opacity: .35; filter: grayscale(.7); }
+.mq.pille span { opacity: .6; }
+.mq.repop i { box-shadow: 0 0 0 2px #5fbf72, 0 1px 3px rgba(0, 0, 0, .55); }
+
+/* Bloc de reglage du repop */
+#blocLoot .ligne-loot {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 6px;
+}
+#blocLoot .ligne-loot:first-child { margin-top: 0; }
+#blocLoot .etiquette { font-size: 12px; color: var(--doux, #9aa0aa); }
+#blocLoot #repopJeu { width: 64px; text-align: right; }
+#blocLoot .unite { font-size: 12px; color: var(--doux, #9aa0aa); }
+#blocLoot .reel { font-size: 11px; color: var(--doux, #9aa0aa); margin-left: auto; }
+#blocLoot #lootReset { font-size: 11px; padding: 2px 7px; }
+#blocLoot #lootReset:disabled { opacity: .4; cursor: default; }
+
+/* Bouton chrono dans la liste */
+.ligne .titre { display: flex; align-items: center; gap: 6px; }
+.ligne .chrono {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  line-height: 1.5;
+  opacity: .55;
+  flex: none;
+}
+.ligne:hover .chrono, .ligne.active .chrono { opacity: 1; }
+.ligne .loot { font-size: 11px; color: #8fd14f; margin-top: 1px; }
+.ligne.pille { opacity: .62; }
+.ligne.pille .loot { color: var(--doux, #9aa0aa); }
+.ligne.repop .loot { color: #5fbf72; font-weight: 600; }
+
+/* Groupe de marqueurs partageant la meme case : boite noire translucide posee
+   derriere les pastilles, qui sont ecartees lateralement. */
+.mq-boite {
+  position: absolute;
+  z-index: 0;                       /* les pastilles vont de 1 a 10 */
+  border-radius: 9px;
+  background: rgba(0, 0, 0, .55);
+  border: 1px solid rgba(255, 255, 255, .18);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  pointer-events: none;
+}
+/* Dans un groupe la pastille s'allege : la boite fournit deja le contraste,
+   et deux ombres portees cote a cote font une tache. */
+.mq.en-groupe i {
+  border-color: rgba(0, 0, 0, .35);
+  box-shadow: none;
+}
+
 /* Marqueur selectionne : reticule pour lever toute ambiguite sur la case. */
 .mq.selection i { border-color: #fff; }
 .mq.selection::before,
@@ -176,6 +229,24 @@ body.replie #panneau { transform: translateX(100%); }
   background: rgba(0, 0, 0, .65);
 }
 body.replie #replier { right: 8px; }
+
+/* Bascule vue de dessus / isometrique. Pose sous le bouton de repli, il suit
+   le panneau lateral de la meme facon. */
+#bascule {
+  position: absolute;
+  top: 44px;
+  right: calc(var(--largeur-panneau) + 8px);
+  z-index: 11;
+  padding: 5px 10px;
+  line-height: 1;
+  font-size: 12px;
+  background: rgba(0, 0, 0, .65);
+  white-space: nowrap;
+}
+body.replie #bascule { right: 8px; }
+#bascule[hidden] { display: none; }
+#bascule:disabled { opacity: .5; cursor: progress; }
+body.mode-iso #bascule { border-color: var(--accent, #6ea8fe); }
 .bloc { padding: 10px 14px; border-bottom: 1px solid var(--trait); }
 .bloc + .bloc { border-top: 0; }
 

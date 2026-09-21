@@ -1,10 +1,11 @@
 // Assemblage : evenements, panneau lateral, persistance.
 
-import { EMPRISE, chargerGeometrie, pyramidesActives } from './geometrie.js';
+import { EMPRISE, chargerGeometrie, pyramidesActives,
+         mode, modeDisponible, ecartZoomModes } from './geometrie.js';
 import {
-  vue, echelle, ZOOM_MIN, ZOOM_MAX,
-  initTuiles, dessinerTuiles, infoRendu,
-  deplacer, zoomer, centrerSur, cadrerSur,
+  vue, echelle, zoomMin, zoomMax,
+  initTuiles, dessinerTuiles, infoRendu, viderTuiles,
+  deplacer, zoomer, centrerSur, cadrerSur, cadrerEmprise,
   ecranVersMondeX, ecranVersMondeY, centreMonde,
 } from './vue.js';
 import {
@@ -13,6 +14,7 @@ import {
   nombreActifs, empriseActifs,
 } from './marqueurs.js';
 import { initRues, basculerRues, dessinerRues } from './rues.js';
+import * as loot from './loot.js';
 
 const $ = id => document.getElementById(id);
 
@@ -66,16 +68,18 @@ function majHud() {
   const info = infoRendu();
   if (!info) return;
   if (sourisX !== null) {
-    $('hudX').textContent = Math.floor(ecranVersMondeX(sourisX));
-    $('hudY').textContent = Math.floor(ecranVersMondeY(sourisY));
+    $('hudX').textContent = Math.floor(ecranVersMondeX(sourisX, sourisY));
+    $('hudY').textContent = Math.floor(ecranVersMondeY(sourisX, sourisY));
   }
   const ratio = info.facteurRendu;
-  const mode = ratio > 1.001 ? 'agrandi x' + Math.round(ratio)
+  const modeRendu = ratio > 1.001 ? 'agrandi x' + Math.round(ratio)
              : ratio > 0.999 ? '1:1 pixel ecran'
              : 'reduit x' + (1 / ratio).toFixed(2);
+  const tc = info.tailleCase;
   $('hudZoom').textContent =
-    `echelle ${info.echelle >= 1 ? info.echelle : '1/' + (1 / info.echelle)} px/case`
-    + ` · niveau ${info.niveau}/${info.niveauMax} · ${mode}`
+    `${tc >= 1 ? tc : '1/' + Math.round(1 / tc)} px/case`
+    + ` · ${info.mode === 'iso' ? 'isometrique' : 'vue de dessus'}`
+    + ` · niveau ${info.niveau}/${info.niveauMax} · ${modeRendu}`
     + (info.sqr > 1 ? ` · source ${info.sqr} px/case` : '')
     + (info.dpr !== 1 ? ` · dpr ${info.dpr}` : '')
     + ` · ${info.tuiles} tuiles`;
@@ -131,10 +135,16 @@ function majListe() {
     const ligne = document.createElement('div');
     ligne.className = 'ligne' + (index === etat.selection ? ' active' : '');
     const distance = Math.round(Math.sqrt(d2));
+    const etatLoot = loot.etatTexte(m);
+    const frais = etatLoot !== null && loot.estFrais(m);
+    if (etatLoot !== null) ligne.classList.add(frais ? 'pille' : 'repop');
     ligne.innerHTML =
       `<div class="titre"><b class="pastille" style="background-image:url(icons/${m.cat}.png?v=4)"></b>`
-      + `${echapper(m.t)}</div>`
+      + `${echapper(m.t)}`
+      + `<button class="chrono" data-index="${index}" title="${etatLoot ? 'Remettre a zero le chrono' : 'Marquer comme pille maintenant'}">`
+      + `${etatLoot ? '\u21bb' : 'pille'}</button></div>`
       + `<div class="meta">${m.cat} · x ${m.x} y ${m.y} z ${m.z} · ${distance} cases</div>`
+      + (etatLoot ? `<div class="loot">${echapper(etatLoot)}</div>` : '')
       + (m.d ? `<div class="desc">${echapper(m.d)}</div>` : '');
     ligne.addEventListener('click', () => selectionner(index, true));
     frag.appendChild(ligne);
@@ -143,6 +153,19 @@ function majListe() {
   const active = hote.querySelector('.ligne.active');
   if (active) active.scrollIntoView({ block: 'nearest' });
 }
+
+// Un seul ecouteur pose une fois pour toutes : la liste est reconstruite a
+// chaque deplacement, poser un ecouteur par ligne les multiplierait.
+$('liste').addEventListener('click', e => {
+  const b = e.target.closest('.chrono');
+  if (!b) return;
+  e.stopPropagation();
+  const m = etat.tous[+b.dataset.index];
+  if (loot.date(m)) loot.effacer(m); else loot.marquer(m);
+  majBandeauLoot();
+  reinitialiserAffichage();
+  demanderRendu(true);
+});
 
 function echapper(s) {
   return String(s).replace(/[&<>"]/g, ch =>
@@ -228,6 +251,10 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') { deplacer(-pas, 0); demanderRendu(true); }
   else if (e.key === 'ArrowUp') { deplacer(0, pas); demanderRendu(true); }
   else if (e.key === 'ArrowDown') { deplacer(0, -pas); demanderRendu(true); }
+  else if (e.key === 'v' || e.key === 'V') {
+    const b = $('bascule');
+    if (b && !b.hidden && !b.disabled) basculerMode(mode === 'iso' ? 'dessus' : 'iso');
+  }
   else return;
   e.preventDefault();
 });
@@ -304,22 +331,122 @@ $('replier').addEventListener('click', () => {
   demanderRendu(true);
 });
 
+// --- suivi du loot ---------------------------------------------------------
+
+function majBandeauLoot() {
+  $('repopJeu').value = loot.repop();
+  $('repopReel').textContent = `soit ${loot.duree(loot.repopMs())} en temps reel`;
+  const n = loot.nombreSuivis();
+  $('lootCompte').textContent = n ? `${n} lieu${n > 1 ? 'x' : ''} suivi${n > 1 ? 's' : ''}` : 'aucun lieu suivi';
+  $('lootReset').disabled = !n;
+}
+
+function initLoot() {
+  loot.charger();
+  majBandeauLoot();
+
+  const champ = $('repopJeu');
+  const appliquer = () => {
+    const v = parseFloat(champ.value.replace(',', '.'));
+    if (!loot.definirRepop(v)) champ.value = loot.repop();   // valeur refusee
+    majBandeauLoot();
+    reinitialiserAffichage();
+    demanderRendu(true);
+  };
+  champ.addEventListener('change', appliquer);
+  champ.addEventListener('blur', appliquer);
+  champ.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); appliquer(); } });
+
+  $('lootReset').addEventListener('click', () => {
+    if (!loot.nombreSuivis()) return;
+    if (!confirm(`Effacer les ${loot.nombreSuivis()} chronos de loot ?`)) return;
+    loot.toutEffacer();
+    majBandeauLoot();
+    reinitialiserAffichage();
+    demanderRendu(true);
+  });
+
+  // Le temps passe meme sans interaction : on rafraichit l'affichage a un
+  // rythme calme, un cinquantieme du delai de repop, borne entre 15 s et 5 min.
+  const periode = Math.min(300000, Math.max(15000, loot.repopMs() / 50));
+  setInterval(() => { majBandeauLoot(); demanderRendu(true); }, periode);
+}
+
+// --- bascule entre vue de dessus et isometrique ----------------------------
+
+let basculeEnCours = false;
+
+/**
+ * Change de mode en conservant le point vise et la taille apparente des cases.
+ *
+ * Les deux modes n'ont pas la meme unite de plan : une case vaut 1 unite en vue
+ * de dessus et 2*64 = 128 unites en iso. L'ecart de zoom equivalent est donc
+ * log2(128) = 7 crans exactement, une puissance de deux, ce qui preserve la
+ * regle "echelle = 2^zoom" et donc la nettete des deux cotes.
+ */
+async function basculerMode(vers) {
+  if (basculeEnCours || vers === mode) return;
+  basculeEnCours = true;
+  const bouton = $('bascule');
+  bouton.disabled = true;
+
+  const centre = centreMonde();
+  const zoomAvant = vue.zoom;
+  const ecart = ecartZoomModes();
+  const zoomVoulu = (vers === 'iso') ? zoomAvant - ecart : zoomAvant + ecart;
+  const ancien = mode;
+
+  try {
+    const pyramides = await chargerGeometrie(vers);
+    viderTuiles();
+    centrerSur(centre.x, centre.y, zoomVoulu);
+    majBascule();
+    demanderRendu(true);
+    console.info(`mode ${vers} :`, pyramides.map(p => p.nom).join(', '));
+  } catch (e) {
+    // Retour au mode precedent plutot que de laisser le viewer vide.
+    console.error('bascule impossible :', e.message);
+    await chargerGeometrie(ancien);
+    viderTuiles();
+    centrerSur(centre.x, centre.y, zoomAvant);
+    majBascule();
+    demanderRendu(true);
+    alert(`Le rendu ${vers === 'iso' ? 'isometrique' : 'de dessus'} n'est pas disponible.`);
+  } finally {
+    bouton.disabled = false;
+    basculeEnCours = false;
+  }
+}
+
+function majBascule() {
+  const b = $('bascule');
+  if (!b) return;
+  const iso = (mode === 'iso');
+  b.textContent = iso ? 'vue de dessus' : 'vue isometrique';
+  b.title = iso
+    ? 'Repasser a la vue de dessus (touche V)'
+    : 'Passer a la vue isometrique (touche V)';
+  document.body.classList.toggle('mode-iso', iso);
+}
+
 // --- persistance de la vue -------------------------------------------------
 
 function enregistrerVue() {
   try {
     const c = centreMonde();
-    localStorage.setItem('pzcarte.vue', JSON.stringify({ x: c.x, y: c.y, zoom: vue.zoom }));
+    localStorage.setItem('pzcarte.vue.' + mode,
+      JSON.stringify({ x: c.x, y: c.y, zoom: vue.zoom }));
+    localStorage.setItem('pzcarte.mode', mode);
   } catch (e) {}
 }
 
 function restaurerVue() {
   try {
-    const brut = localStorage.getItem('pzcarte.vue');
+    const brut = localStorage.getItem('pzcarte.vue.' + mode);
     if (brut) {
       const v = JSON.parse(brut);
       if (isFinite(v.x) && isFinite(v.y) && isFinite(v.zoom)) {
-        centrerSur(v.x, v.y, Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom)));
+        centrerSur(v.x, v.y, Math.max(zoomMin(), Math.min(zoomMax(), v.zoom)));
         return true;
       }
     }
@@ -336,10 +463,27 @@ async function demarrer() {
   mesurer();
 
   // La geometrie est lue dans les fichiers de rendu : le viewer s'adapte tout
-  // seul a un rendu 1 px ou 2 px par case.
-  const [pyramides] = await Promise.all([chargerGeometrie(), chargerMarqueurs()]);
+  // seul a un rendu 1 px ou 2 px par case, et a l'un ou l'autre mode.
+  let modeVoulu = 'dessus';
+  try { modeVoulu = localStorage.getItem('pzcarte.mode') || 'dessus'; } catch (e) {}
+  if (!(await modeDisponible(modeVoulu))) {
+    modeVoulu = (modeVoulu === 'iso') ? 'dessus' : 'iso';
+  }
+
+  const [pyramides] = await Promise.all([chargerGeometrie(modeVoulu), chargerMarqueurs()]);
   console.info('pyramides chargees :', pyramides.map(
     p => `${p.nom} ${p.w}x${p.h} sqr=${p.sqr} tuile=${p.tailleTuile} niveaux 0..${p.niveauMax}`).join(' | '));
+  // Le bouton n'a de sens que si l'autre rendu existe reellement sur le disque.
+  const autre = (mode === 'iso') ? 'dessus' : 'iso';
+  const bascPossible = await modeDisponible(autre);
+  $('bascule').hidden = !bascPossible;
+  majBascule();
+  if (bascPossible) {
+    $('bascule').addEventListener('click',
+      () => basculerMode(mode === 'iso' ? 'dessus' : 'iso'));
+  }
+
+  initLoot();
   remplirVilles();
   construireFiltres();
   enregistrerFiltres();   // fige l'etat par defaut des la premiere ouverture
@@ -353,9 +497,19 @@ async function demarrer() {
 
   if (!restaurerVue()) {
     // Premiere ouverture : on cadre sur l'emprise complete, Raven Creek incluse.
-    cadrerSur(EMPRISE.x0, EMPRISE.y0, EMPRISE.x1, EMPRISE.y1, 20);
+    cadrerEmprise(20);
   }
   demanderRendu(true);
+}
+
+// Service worker : ouverture instantanee de la fenetre d'application et
+// fonctionnement meme serveur eteint. Il ne met en cache que la coquille,
+// jamais les tuiles, voir sw.js.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .catch(e => console.warn('service worker non enregistre :', e.message));
+  });
 }
 
 demarrer().catch(err => {

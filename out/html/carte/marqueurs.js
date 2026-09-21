@@ -10,7 +10,9 @@
 // l'etiquette, ce qui remontait l'icone d'une demi-pastille plus la hauteur du
 // texte, et la faisait sauter quand les etiquettes apparaissaient.
 
-import { vue, echelle, mondeVersEcranX, mondeVersEcranY, centreMonde } from './vue.js';
+import { vue, echelle, mondeVersEcranX, mondeVersEcranY, centreMonde,
+         empriseMondeVisible } from './vue.js';
+import * as loot from './loot.js';
 
 const VERSION_ICONES = 4;   // le cache des icones est tenace, on le contourne
 
@@ -39,6 +41,27 @@ const PLAFOND_AFFICHES = 900;   // au-dela ca rame et c'est illisible
 const ZOOM_ETIQUETTES = 2;
 const ZOOM_ETIQUETTES_RARES = -1;
 const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
+
+// Priorite de dessin. L'ordre de CATEGORIES va du plus rare au plus courant :
+// 'top' (1 marqueur), 'or' (13), 'billets' (24)... 'labo' (87). On s'en sert
+// comme z-index.
+//
+// Necessaire parce que 19 positions portent DEUX marqueurs exactement aux
+// memes coordonnees, dont 12 paires billets + valeur et 5 paires or + valeur.
+// Sans priorite c'est l'ordre du fichier qui tranche, et 'valeur' (155
+// entrees) y arrive apres, donc masque systematiquement la categorie rare.
+// Exemple : le labo de drogue en x=11617 y=9294, ou le butin de billets
+// disparaissait sous la pastille de la piece.
+const PRIORITE = new Map(CATEGORIES.map((c, i) => [c.cle, CATEGORIES.length - i]));
+
+// Doublons de position. 19 endroits portent deux marqueurs aux memes
+// coordonnees exactes : on les ecarte lateralement et on pose derriere eux une
+// boite noire translucide, pour qu'on voie d'un coup d'oeil qu'il y en a
+// plusieurs et lesquels.
+const ECART_DOUBLON = 32;   // distance entre CENTRES ; la pastille fait 30 px
+                            // bordure comprise, 32 laisse donc 2 px de jour
+const MARGE_BOITE = 5;      // px autour du groupe
+const boites = new Map();   // cle de position -> element de la boite
 
 export const etat = {
   tous: [],           // tous les marqueurs, dans l'ordre du fichier
@@ -113,6 +136,8 @@ function creerElement(index, m) {
   el.className = 'mq mq-' + m.cat;
   el.dataset.index = index;
   el.title = `${m.t}\n${m.d || ''}\nx=${m.x}  y=${m.y}  z=${m.z}`;
+  // Plus la categorie est rare, plus elle passe devant.
+  el.style.zIndex = PRIORITE.get(m.cat) || 0;
   const pastille = document.createElement('i');
   pastille.style.backgroundImage = `url(icons/${m.cat}.png?v=${VERSION_ICONES})`;
   el.appendChild(pastille);
@@ -130,11 +155,9 @@ function creerElement(index, m) {
 /** Culling : on ne cree que les marqueurs reellement dans la fenetre. */
 export function dessinerMarqueurs() {
   const e = echelle();
-  const marge = 40 / e;                       // en cases monde
-  const x0 = (0 - vue.panX) / e - marge;
-  const y0 = (0 - vue.panY) / e - marge;
-  const x1 = (vue.largeur - vue.panX) / e + marge;
-  const y1 = (vue.hauteur - vue.panY) / e + marge;
+  // La boite visible ne peut plus se deduire coordonnee par coordonnee : en
+  // iso le rectangle de l'ecran devient un losange en coordonnees monde.
+  const { x0, y0, x1, y1 } = empriseMondeVisible(40 / e);
 
   let candidats = [];
   for (let i = 0; i < etat.tous.length; i++) {
@@ -160,12 +183,36 @@ export function dessinerMarqueurs() {
     if (!gardes.has(index)) { el.remove(); elements.delete(index); }
   }
 
+  // Regroupement des marqueurs qui partagent exactement la meme case. Le
+  // groupe ne se forme que sur ce qui est REELLEMENT affiche : si un filtre
+  // masque l'un des deux, l'autre reprend sa place normale, sans boite.
+  const groupes = new Map();
+  for (const index of candidats) {
+    const m = etat.tous[index];
+    const cle = `${m.x}|${m.y}|${m.z}`;
+    let g = groupes.get(cle);
+    if (!g) { g = []; groupes.set(cle, g); }
+    g.push(index);
+  }
+  // Les plus rares a gauche, pour un ordre stable et lisible.
+  for (const g of groupes.values()) {
+    if (g.length > 1) {
+      g.sort((a, b) => (PRIORITE.get(etat.tous[b].cat) || 0)
+                     - (PRIORITE.get(etat.tous[a].cat) || 0));
+    }
+  }
+  const rangs = new Map();
+  for (const g of groupes.values()) g.forEach((idx, r) => rangs.set(idx, [r, g.length]));
+
   const etiquettes = vue.zoom >= ZOOM_ETIQUETTES;
   const etiquettesRares = vue.zoom >= ZOOM_ETIQUETTES_RARES;
   for (const index of candidats) {
     const m = etat.tous[index];
-    const nomme = index === etat.selection || etiquettes
-      || (etiquettesRares && CATEGORIES_RARES.has(m.cat));
+    const [rang, taille] = rangs.get(index) || [0, 1];
+    // Une seule etiquette par groupe, sinon les textes se superposent.
+    const nomme = (rang === 0 || index === etat.selection)
+      && (index === etat.selection || etiquettes
+      || (etiquettesRares && CATEGORIES_RARES.has(m.cat)));
     let el = elements.get(index);
     if (!el) {
       el = creerElement(index, m);
@@ -173,10 +220,43 @@ export function dessinerMarqueurs() {
       conteneur.appendChild(el);
     }
     // Arrondi au pixel : une pastille a cheval sur deux pixels est floue.
-    el.style.left = Math.round(mondeVersEcranX(m.x)) + 'px';
-    el.style.top = Math.round(mondeVersEcranY(m.y)) + 'px';
+    // Le decalage des doublons est entier lui aussi, pour la meme raison.
+    const dx = (taille > 1) ? Math.round((rang - (taille - 1) / 2) * ECART_DOUBLON) : 0;
+    el.style.left = (Math.round(mondeVersEcranX(m.x, m.y)) + dx) + 'px';
+    el.style.top = Math.round(mondeVersEcranY(m.x, m.y)) + 'px';
+    el.classList.toggle('en-groupe', taille > 1);
     el.classList.toggle('avec-nom', nomme);
     el.classList.toggle('selection', index === etat.selection);
+    // Etat de loot : eteint tant que le repop n'est pas fait, puis liseré vert
+    // le temps qu'on remarque que c'est redevenu pillable.
+    const dateLoot = loot.date(m);
+    el.classList.toggle('pille', dateLoot > 0 && loot.estFrais(m));
+    el.classList.toggle('repop', dateLoot > 0 && !loot.estFrais(m));
+  }
+
+  // Boites des groupes. Creees apres les marqueurs pour que leur retrait
+  // suive le meme cycle, posees derriere eux par leur z-index.
+  const clesVues = new Set();
+  for (const [cle, g] of groupes) {
+    if (g.length < 2) continue;
+    clesVues.add(cle);
+    const m = etat.tous[g[0]];
+    let b = boites.get(cle);
+    if (!b) {
+      b = document.createElement('div');
+      b.className = 'mq-boite';
+      boites.set(cle, b);
+      conteneur.appendChild(b);
+    }
+    const largeur = (g.length - 1) * ECART_DOUBLON + 30 + 2 * MARGE_BOITE;
+    const hauteur = 30 + 2 * MARGE_BOITE;
+    b.style.width = largeur + 'px';
+    b.style.height = hauteur + 'px';
+    b.style.left = (Math.round(mondeVersEcranX(m.x, m.y)) - largeur / 2) + 'px';
+    b.style.top = (Math.round(mondeVersEcranY(m.x, m.y)) - hauteur / 2) + 'px';
+  }
+  for (const [cle, b] of boites) {
+    if (!clesVues.has(cle)) { b.remove(); boites.delete(cle); }
   }
 
   etat.visibles = candidats.length;
@@ -187,6 +267,8 @@ export function dessinerMarqueurs() {
 export function reinitialiserAffichage() {
   for (const [, el] of elements) el.remove();
   elements.clear();
+  for (const [, b] of boites) b.remove();
+  boites.clear();
 }
 
 /**

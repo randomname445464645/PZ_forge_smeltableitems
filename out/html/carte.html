@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Carte PZ together</title>
 <link rel="icon" href="favicon.ico">
-<link rel="stylesheet" href="carte/style.css?v=4">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#14161a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="pwa/icone-192.png">
+<link rel="stylesheet" href="carte/style.css?v=7">
 </head>
 <body>
 
@@ -16,6 +20,7 @@
 </div>
 
 <button id="replier" title="Replier ou deplier le panneau">&#9776;</button>
+<button id="bascule" hidden title="Changer de vue (touche V)">vue isometrique</button>
 
 <div id="hud">
   <div class="coord">x <b id="hudX">-</b> &nbsp; y <b id="hudY">-</b></div>
@@ -39,6 +44,19 @@
     </label>
   </div>
 
+  <div class="bloc" id="blocLoot">
+    <div class="ligne-loot">
+      <span class="etiquette">repop</span>
+      <input type="text" id="repopJeu" inputmode="decimal" title="Delai de repop, en heures de JEU">
+      <span class="unite">h de jeu</span>
+      <span id="repopReel" class="reel"></span>
+    </div>
+    <div class="ligne-loot">
+      <span id="lootCompte" class="reel"></span>
+      <button id="lootReset" title="Effacer tous les chronos">tout effacer</button>
+    </div>
+  </div>
+
   <div class="bloc">
     <div class="ligne-boutons" style="margin-top:0">
       <input type="text" id="coordX" placeholder="x" inputmode="numeric">
@@ -53,6 +71,6 @@
   <div id="liste"></div>
 </div>
 
-<script type="module" src="carte/app.js?v=4"></script>
+<script type="module" src="carte/app.js?v=13"></script>
 </body>
 </html>
