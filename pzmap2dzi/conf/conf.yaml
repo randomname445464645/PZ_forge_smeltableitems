@@ -1,8 +1,8 @@
 pz_root: |- # project zomboid game folder
-    /home/kiri/GOG Games/Project Zomboid/game/projectzomboid
+    /home/kiri/.local/share/Steam/steamapps/common/ProjectZomboid/projectzomboid
 
 output_root: |- # render output folder
-    /home/kiri/Documents/labo/pzmap/out
+    /mnt/data/pz-render/out-sqr1
 
 mod_root: |- # steam workshop folder for project zomboid
     /home/kiri/.local/share/Steam/steamapps/workshop/content/108600

@@ -1,8 +1,8 @@
 pz_root: |- # project zomboid game folder
     /home/kiri/.local/share/Steam/steamapps/common/ProjectZomboid/projectzomboid
 
-output_root: |- # rendu 2 px/case, dans out2 pour ne pas casser la carte servie
-    /mnt/data/pz-render/out-top
+output_root: |- # rendu isometrique (job base), pyramide separee
+    /mnt/data/pz-render/out-iso
 
 mod_root: |- # steam workshop folder for project zomboid
     /home/kiri/.local/share/Steam/steamapps/workshop/content/108600
@@ -91,7 +91,9 @@ render_conf:
     # show profiling infomation
     profile: false
     # thread count, use 'auto' to set to cpu count
-    worker_count: auto
+    # bride a la moitie des 16 threads de la machine, pour laisser le reste
+    # disponible. 'auto' remettrait 16.
+    worker_count: 8
     # set hotkey to stop render (rerun render to resume)
     # hotkey examples:
     #     <ctrl>+<alt>+a    ctrl + alt + a

@@ -1,8 +1,8 @@
 pz_root: |- # project zomboid game folder
     /home/kiri/.local/share/Steam/steamapps/common/ProjectZomboid/projectzomboid
 
-output_root: |- # rendu 2 px/case, dans out2 pour ne pas casser la carte servie
-    /mnt/data/pz-render/out-top
+output_root: |- # rendu isometrique (job base), pyramide separee
+    /mnt/data/pz-render/out-iso
 
 mod_root: |- # steam workshop folder for project zomboid
     /home/kiri/.local/share/Steam/steamapps/workshop/content/108600
