@@ -1,6 +1,6 @@
 // Chargement, filtrage, affichage et liste des marqueurs.
 //
-// markers.json contient 3486 entrees {x, y, z, cat, t, d}, en coordonnees
+// markers.json contient 3508 entrees {x, y, z, cat, t, d}, en coordonnees
 // MONDE (celles que le jeu affiche). Verifie contre rooms/marks.json de
 // pzmap2dzi : les rectangles de pieces tombent exactement sur les batiments,
 // et les marqueurs tombent dans les bonnes pieces.
@@ -35,14 +35,14 @@ export const CATEGORIES = [
 const FILTRES_DEFAUT = ['top', 'or', 'billets', 'valeur', 'armes'];
 
 // Les etiquettes se chevauchent vite dans les zones denses : on ne les affiche
-// en masse qu'a partir de 4 px par case. Les categories rares (338 marqueurs en
+// en masse qu'a partir de 4 px par case. Les categories rares (360 marqueurs en
 // tout) restent nommees bien plus tot, c'est le cas ou on veut lire le nom.
 const ZOOM_ETIQUETTES = 2;
 const ZOOM_ETIQUETTES_RARES = -1;
 const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 
 // Priorite de dessin. L'ordre de CATEGORIES va du plus rare au plus courant :
-// 'top' (1 marqueur), 'or' (181), 'billets' (156)... 'labo' (87). On s'en sert
+// 'top' (23 marqueurs), 'or' (181), 'billets' (156)... 'labo' (87). On s'en sert
 // comme z-index.
 //
 // Necessaire parce que 141 positions portent DEUX marqueurs exactement aux
@@ -80,9 +80,17 @@ let auClic = () => {};
 // manque : elle affiche juste le nom et les coordonnees, comme avant.
 let loots = null;
 // Le nom de piece est le premier champ de la description : "gunstore · 10x5 ·
-// vanilla". Les marqueurs ecrits a la main ne suivent pas ce format et n'ont
-// donc pas de liste, c'est voulu, leur description dit deja quoi y trouver.
+// vanilla". Les marqueurs ecrits a la main ne suivent pas ce format, ils
+// portent le nom dans un champ 'p' que l'extracteur leur recopie depuis le
+// marqueur extrait tombant sur la meme case. Sans ca le labo de drogue en
+// 11617,9294 n'avait pas de table alors que la piece est connue.
 const NOM_PIECE = /^([A-Za-z0-9_]+) · \d+x\d+ · /;
+
+function nomPiece(m) {
+  if (m.p) return m.p;
+  const c = NOM_PIECE.exec(m.d || '');
+  return c ? c[1] : null;
+}
 
 export function initMarqueurs(element, rappelClic) {
   conteneur = element;
@@ -177,8 +185,8 @@ function remplirBulle(m, el) {
   sous.textContent = `${m.d || ''}${m.d ? ' · ' : ''}x=${m.x} y=${m.y} z=${m.z}`;
   b.appendChild(sous);
 
-  const piece = NOM_PIECE.exec(m.d || '');
-  const liste = piece && loots ? loots[piece[1]] : null;
+  const piece = nomPiece(m);
+  const liste = piece && loots ? loots[piece] : null;
   if (liste && liste.length) {
     const entete = document.createElement('div');
     entete.className = 'mq-bulle-entete';
@@ -220,7 +228,7 @@ function creerElement(index, m) {
   el.className = 'mq mq-' + m.cat;
   el.dataset.index = index;
   // Remplie au survol et pas ici : la table de loot arrive apres les
-  // marqueurs, et construire 3486 bulles d'avance ne sert a rien.
+  // marqueurs, et construire 3508 bulles d'avance ne sert a rien.
   el.addEventListener('mouseenter', () => remplirBulle(m, el));
   el.addEventListener('mouseleave', cacherBulle);
   // Plus la categorie est rare, plus elle passe devant.

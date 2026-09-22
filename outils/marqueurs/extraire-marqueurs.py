@@ -126,6 +126,28 @@ LIBELLES_RARES = {
 # fois. Les palettes deja vides d'origine (sprite _0) ne sont pas marquees.
 SPRITE_PALETTE_PLEINE = 'location_military_knox_01_1'
 
+# Loot exceptionnel : une piece qui n'existe qu'une poignee de fois sur les
+# neuf cartes ET qui contient du materiel qu'on ne trouve pas ailleurs. Les
+# deux conditions comptent : armystorage a de meilleures armes que la plupart
+# d'ici, mais il y en a 160, ce n'est pas un voyage.
+#
+# Le chiffre entre parenthetes est le nombre de pieces sur les neuf cartes. Le
+# pourcentage est la chance par tirage de meuble, calculee comme dans
+# extraire-loot.py.
+PIECES_TOP = {
+    'policeswat':           'Depot SWAT',            # 1  armes, munitions, viseur
+    'swatlocker':           'Vestiaire SWAT',        # 1  armure et sac SWAT
+    'garage_ranger':        'Garage des rangers',    # 1  revolver, carabine, fusil 25 %
+    'outdoorsupply':        'Magasin de plein air',  # 1  fusils de chasse
+    'judgematthassset':     'Bureau du juge Hass',   # 1  Revolver_Long 56 %
+    'blacksmith':           'Forge',                 # 1  moules et outils de forgeron
+    'SurvivorCache2':       'Cache de survivant',    # 1  armes assorties
+    'captainoffice':        'Bureau du capitaine',   # 2  armes, coffre, insigne
+    'mayorwestpointoffice': 'Bureau du maire',       # 2  coffre du maire
+    'oldarmy':              'Bunker militaire',      # 5
+    'prisonstorage':        "Reserve d'armes de prison",  # 6
+}
+
 FORMAT_EXTRAIT = re.compile(r'^[a-z0-9]+ · \d+x\d+ · ')
 
 
@@ -169,7 +191,8 @@ def extraire(chemin, libelle):
                 nom = nom.decode('utf8', 'replace')
             info = PIECES.get(nom)
             rare = PIECES_RARES.get(nom)
-            if not info and not rare:
+            sommet = PIECES_TOP.get(nom)
+            if not info and not rare and not sommet:
                 continue
             rects = r.get('rects') or []
             if not rects:
@@ -187,6 +210,8 @@ def extraire(chemin, libelle):
             if rare:
                 titre = info[1] if info else LIBELLES_RARES[nom]
                 marqueurs.append(dict(base, cat=rare[0], t=titre))
+            if sommet:
+                marqueurs.append(dict(base, cat='top', t=sommet))
 
         # Palettes de lingots : objet de decor, pas une piece.
         #
@@ -255,6 +280,26 @@ def main():
         tous.extend(m)
         etat = '' if cellules else '   CHEMIN INTROUVABLE'
         print('   %-18s %5d marqueurs   %4d cellules%s' % (libelle, len(m), cellules, etat))
+
+    # Les marqueurs ecrits a la main n'ont pas de nom de piece dans leur
+    # description, donc l'infobulle ne trouvait pas leur table de loot : le
+    # labo de drogue en 11617,9294 n'affichait rien alors que le meme endroit
+    # est aussi extrait comme 'druglab'. On leur recopie le nom de piece du
+    # marqueur extrait qui tombe exactement sur la meme case.
+    piece_par_case = {}
+    for k in tous:
+        m = FORMAT_EXTRAIT.match(k.get('d') or '')
+        if m:
+            piece_par_case.setdefault((k['x'], k['y'], k['z']),
+                                      (k['d'] or '').split(' · ')[0])
+    enrichis = 0
+    for k in manuels:
+        nom = piece_par_case.get((k['x'], k['y'], k['z']))
+        if nom:
+            k['p'] = nom
+            enrichis += 1
+    print('marqueurs manuels raccordes a une table de loot : %d / %d'
+          % (enrichis, len(manuels)))
 
     # Deduplication : deux cartes peuvent se recouvrir.
     vus = set()
