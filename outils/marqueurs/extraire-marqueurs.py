@@ -74,6 +74,47 @@ LIBELLES = {
     'Chestown_B42': 'Chestown', 'LQZ_B42': 'LQZ',
 }
 
+# Pieces qui contiennent VRAIMENT de l'or ou des billets, relevees dans les
+# tables de loot du jeu et non a la main. Lecture faite avec lupa sur
+# media/lua/server/Items/{Distributions,ProceduralDistributions}.lua : chaque
+# piece y associe ses meubles a des tables procedurales, et chaque table liste
+# ses objets avec un poids. Le score en commentaire est la somme des poids des
+# objets vises, multipliee par le nombre de tirages de la table.
+#
+# Une piece d'ici recoit DEUX pastilles : sa categorie normale (valeur, armes)
+# et la categorie rare. C'est deja le cas des 37 marqueurs ecrits a la main.
+#
+# Volontairement exclues, trop nombreuses pour le gain :
+#   prisoncells    708 pieces, billets 124   (cellule au hasard)
+#   policestorage  108 pieces, billets  70   (PoliceEvidence, chance 10 %)
+#   bedroom / all  toutes les maisons        (caches sous le plancher)
+PIECES_RARES = {
+    # or
+    'jewelrystorage':      ('or', 656),   # JewelryStorageAll + JewelerTools
+    'pawnshopoffice':      ('or', 656),   # JewelryStorageAll
+    'jewelrystore':        ('or', 456),   # JewelryGold en vitrine, chance 100
+    'pawnshop':            ('or', 456),   # idem
+    'departmentstore':     ('or', 456),   # comptoir bijoux
+    # billets
+    'bankstorage':     ('billets', None),  # absente des tables vanilla, gardee
+    'druglab':         ('billets', 720),   # DrugLabMoney, MoneyBundle poids 100
+    'stripclub':       ('billets', 696),   # StripClubDressers
+    'stripclubvip':    ('billets', 696),   # idem
+    'nolansoffice':    ('billets', 300),   # NolansDesk
+    'cardealershipoffice': ('billets', 136),
+    'changeroomjockey':    ('billets', 124),
+}
+
+# Titre francais des pieces rares qui n'ont pas de categorie normale.
+LIBELLES_RARES = {
+    'departmentstore':     'Grand magasin',
+    'stripclub':           'Club de striptease',
+    'stripclubvip':        'Club de striptease, carre VIP',
+    'nolansoffice':        'Bureau de Nolan',
+    'cardealershipoffice': 'Bureau de concessionnaire',
+    'changeroomjockey':    'Vestiaire des jockeys',
+}
+
 FORMAT_EXTRAIT = re.compile(r'^[a-z0-9]+ · \d+x\d+ · ')
 
 
@@ -115,21 +156,26 @@ def extraire(chemin, libelle):
             if isinstance(nom, bytes):
                 nom = nom.decode('utf8', 'replace')
             info = PIECES.get(nom)
-            if not info:
+            rare = PIECES_RARES.get(nom)
+            if not info and not rare:
                 continue
             rects = r.get('rects') or []
             if not rects:
                 continue
             # Le plus grand rectangle porte le marqueur, comme a l'origine.
             x, y, w, ht = max(rects, key=lambda t: t[2] * t[3])
-            marqueurs.append({
+            base = {
                 'x': cx * 256 + x + w // 2,
                 'y': cy * 256 + y + ht // 2,
                 'z': r.get('layer', 0),
-                'cat': info[0],
-                't': info[1],
                 'd': '%s · %dx%d · %s' % (nom, w, ht, libelle),
-            })
+            }
+            if info:
+                marqueurs.append(dict(base, cat=info[0], t=info[1]))
+            if rare:
+                titre = info[1] if info else LIBELLES_RARES[nom]
+                marqueurs.append(dict(base, cat=rare[0], t=titre))
+
     return marqueurs, cellules
 
 

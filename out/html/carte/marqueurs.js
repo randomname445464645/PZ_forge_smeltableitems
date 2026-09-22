@@ -36,25 +36,25 @@ const FILTRES_DEFAUT = ['top', 'or', 'billets', 'valeur', 'armes'];
 
 const PLAFOND_AFFICHES = 900;   // au-dela ca rame et c'est illisible
 // Les etiquettes se chevauchent vite dans les zones denses : on ne les affiche
-// en masse qu'a partir de 4 px par case. Les categories rares (38 marqueurs en
+// en masse qu'a partir de 4 px par case. Les categories rares (315 marqueurs en
 // tout) restent nommees bien plus tot, c'est le cas ou on veut lire le nom.
 const ZOOM_ETIQUETTES = 2;
 const ZOOM_ETIQUETTES_RARES = -1;
 const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 
 // Priorite de dessin. L'ordre de CATEGORIES va du plus rare au plus courant :
-// 'top' (1 marqueur), 'or' (13), 'billets' (24)... 'labo' (87). On s'en sert
+// 'top' (1 marqueur), 'or' (158), 'billets' (156)... 'labo' (87). On s'en sert
 // comme z-index.
 //
-// Necessaire parce que 19 positions portent DEUX marqueurs exactement aux
-// memes coordonnees, dont 12 paires billets + valeur et 5 paires or + valeur.
+// Necessaire parce que 141 positions portent DEUX marqueurs exactement aux
+// memes coordonnees, dont 109 paires or + valeur et 21 billets + valeur.
 // Sans priorite c'est l'ordre du fichier qui tranche, et 'valeur' (155
 // entrees) y arrive apres, donc masque systematiquement la categorie rare.
 // Exemple : le labo de drogue en x=11617 y=9294, ou le butin de billets
 // disparaissait sous la pastille de la piece.
 const PRIORITE = new Map(CATEGORIES.map((c, i) => [c.cle, CATEGORIES.length - i]));
 
-// Doublons de position. 19 endroits portent deux marqueurs aux memes
+// Doublons de position. 141 endroits portent deux marqueurs aux memes
 // coordonnees exactes : on les ecarte lateralement et on pose derriere eux une
 // boite noire translucide, pour qu'on voie d'un coup d'oeil qu'il y en a
 // plusieurs et lesquels.
