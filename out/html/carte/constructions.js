@@ -58,7 +58,7 @@ export let depassement = false;
 // Marge du tampon hors ecran, en px CSS. Le tampon couvre le viewport plus
 // cette marge de chaque cote : tant que le deplacement reste dedans, il n'y a
 // rien a redessiner, juste une image a recopier.
-const MARGE_TAMPON = 512;
+const MARGE_TAMPON = 900;
 
 let canvas = null, ctx = null;
 // [x, y, z, [rang, ...], construite?] deja trie dans l'ordre du peintre par
@@ -76,10 +76,17 @@ export let actif = false;
 // 8 px/case et 71 ms a 4, tres au-dela du budget de 16,7 ms. On les dessine
 // donc une fois dans un tampon plus grand que le viewport, et le deplacement
 // se reduit a une recopie d'image, soit moins d'une milliseconde.
+// Deux toiles alternees : pour repartir de l'ancien contenu au lieu de
+// l'effacer, il faut pouvoir lire l'une en ecrivant dans l'autre.
 let tampon = null, tamponCtx = null;
+let tamponB = null, tamponBCtx = null;
 let tamponEtat = null;          // {zoom, mode, px0, py0, pw, ph, version, complet}
 let remplissage = null;         // avancement du remplissage progressif
 let version = 0;                // incremente a chaque rechargement du releve
+let spritesArrives = false;     // des sprites ont fini de charger
+let reprises = 0, remplissages = 0;   // compteurs de diagnostic
+const raisons = {};
+let passes = 0;
 
 // Cache d'images. La valeur vaut null tant que le chargement est en cours,
 // false si l'image est definitivement absente : sans ce troisieme etat on
@@ -152,6 +159,19 @@ export function chargerSprites(listeNoms, delaiMs = 20000) {
 
 /** Diagnostic : le tampon est-il entierement dessine ? */
 export function tamponComplet() { return !!tamponEtat && tamponEtat.complet; }
+
+/** Diagnostic : etat interne du tampon. */
+export function etatTampon() {
+  return {
+    etat: tamponEtat ? { ...tamponEtat } : null,
+    toile: tampon ? [tampon.width, tampon.height] : null,
+    reprises,
+    remplissages,
+    passes,
+    raisons,
+    enCours: !!remplissage,
+  };
+}
 export function disponible() { return cases !== null && cases.length > 0; }
 export function nombreCases() { return cases ? cases.length : 0; }
 
@@ -209,7 +229,12 @@ function image(nom) {
   img.decoding = 'async';
   img.onload = () => {
     images.set(nom, img);
-    tamponEtat = null;          // une image de plus : le tampon est perime
+    // NE PAS invalider le tampon ici. Les sprites arrivent par centaines au
+    // fil du deplacement ; tout jeter a chaque arrivee faisait repartir le
+    // calque de zero en permanence, ce qui se voyait comme un rechargement
+    // complet des que la vue bougeait. On signale seulement qu'une passe
+    // supplementaire sera utile, et elle dessinera PAR DESSUS l'existant.
+    spritesArrives = true;
     if (aRedessiner) aRedessiner();
   };
   img.onerror = () => { images.set(nom, false); };
@@ -272,21 +297,35 @@ function dessinerViaTampon() {
   const dpr = window.devicePixelRatio || 1;
   const e = echelle();
 
-  // Rectangle voulu, en unites de plan.
-  const marge = MARGE_TAMPON / e;
-  const px0 = ecranVersPlanX(0) - marge;
-  const py0 = ecranVersPlanY(0) - marge;
-  const px1 = ecranVersPlanX(vue.largeur) + marge;
-  const py1 = ecranVersPlanY(vue.hauteur) + marge;
+  // Rectangle REELLEMENT visible, en unites de plan. C'est lui qui decide si
+  // le tampon suffit encore.
+  const vx0 = ecranVersPlanX(0);
+  const vy0 = ecranVersPlanY(0);
+  const vx1 = ecranVersPlanX(vue.largeur);
+  const vy1 = ecranVersPlanY(vue.hauteur);
 
-  const perime = !tamponEtat
-    || tamponEtat.zoom !== vue.zoom
-    || tamponEtat.mode !== mode
-    || tamponEtat.version !== version
-    || tamponEtat.dpr !== dpr
-    || px0 < tamponEtat.px0 || py0 < tamponEtat.py0
-    || px1 > tamponEtat.px0 + tamponEtat.pw
-    || py1 > tamponEtat.py0 + tamponEtat.ph;
+  // Rectangle a fabriquer si le tampon doit etre refait : le visible plus une
+  // marge, qui est le jeu autorise avant le prochain remplissage.
+  //
+  // Tester le rectangle ELARGI contre le tampon rendrait la marge inutile :
+  // le moindre deplacement le deborderait et tout serait redessine a chaque
+  // image. C'est exactement ce qui se passait.
+  const marge = MARGE_TAMPON / e;
+  const px0 = vx0 - marge, py0 = vy0 - marge;
+  const px1 = vx1 + marge, py1 = vy1 + marge;
+
+  let raison = '';
+  if (!tamponEtat) raison = 'absent';
+  else if (tamponEtat.zoom !== vue.zoom) raison = 'zoom';
+  else if (tamponEtat.mode !== mode) raison = 'mode';
+  else if (tamponEtat.version !== version) raison = 'version';
+  else if (tamponEtat.dpr !== dpr) raison = 'dpr';
+  else if (vx0 < tamponEtat.px0) raison = 'gauche';
+  else if (vy0 < tamponEtat.py0) raison = 'haut';
+  else if (vx1 > tamponEtat.px0 + tamponEtat.pw) raison = 'droite';
+  else if (vy1 > tamponEtat.py0 + tamponEtat.ph) raison = 'bas';
+  const perime = raison !== '';
+  if (perime) raisons[raison] = (raisons[raison] || 0) + 1;
 
   if (perime) demarrerRemplissage(px0, py0, px1 - px0, py1 - py0, e, dpr);
   else if (tamponEtat && !tamponEtat.complet) continuerRemplissage();
@@ -310,15 +349,40 @@ function demarrerRemplissage(px0, py0, pw, ph, e, dpr) {
   if (lp <= 0 || hp <= 0 || lp > 16384 || hp > 16384) {
     tamponEtat = null; remplissage = null; return;
   }
-  if (!tampon) {
-    tampon = document.createElement('canvas');
-    tamponCtx = tampon.getContext('2d');
+  // On bascule sur l'autre toile pour pouvoir recopier l'ancienne dedans.
+  if (!tamponB) {
+    tamponB = document.createElement('canvas');
+    tamponBCtx = tamponB.getContext('2d');
   }
+  const ancien = tampon, ancienEtat = tamponEtat;
+  tampon = tamponB; tamponCtx = tamponBCtx;
+  tamponB = ancien; tamponBCtx = ancien ? ancien.getContext('2d') : null;
+
   if (tampon.width !== lp || tampon.height !== hp) {
     tampon.width = lp; tampon.height = hp;
   }
   tamponCtx.setTransform(1, 0, 0, 1, 0, 0);
   tamponCtx.clearRect(0, 0, lp, hp);
+
+  // REPRISE DE L'ANCIEN CONTENU. Sans elle, sortir de la marge effacait tout
+  // et le calque se redessinait case par case sous les yeux. On recopie donc
+  // l'ancien tampon a sa place, eventuellement remis a l'echelle apres un
+  // zoom : l'image reste en place, floue une fraction de seconde, puis le
+  // remplissage progressif la redessine nettement par dessus.
+  remplissages++;
+  if (ancien && ancienEtat && ancienEtat.mode === mode && ancienEtat.version === version) {
+    reprises++;
+    const ea = Math.pow(2, ancienEtat.zoom);
+    const r = e / ea;                       // rapport d'echelle entre les deux
+    tamponCtx.imageSmoothingEnabled = r < 1;
+    tamponCtx.drawImage(ancien,
+      (ancienEtat.px0 - px0) * e * dpr,
+      (ancienEtat.py0 - py0) * e * dpr,
+      ancienEtat.pw * e * dpr,
+      ancienEtat.ph * e * dpr);
+  }
+
+  tamponCtx.setTransform(1, 0, 0, 1, 0, 0);
   tamponCtx.scale(dpr, dpr);
   tamponCtx.imageSmoothingEnabled = e < 1;
 
@@ -380,6 +444,16 @@ function continuerRemplissage() {
 
   if (r.i >= cases.length || r.dessines >= MAX_SPRITES) {
     depassement = r.dessines >= MAX_SPRITES;
+    if (spritesArrives && r.dessines < MAX_SPRITES) {
+      // Des sprites sont arrives pendant la passe : on en refait une, par
+      // dessus et sans effacer. Redessiner un sprite deja pose donne le meme
+      // pixel, l'operation est donc invisible.
+      spritesArrives = false;
+      r.i = 0; r.dessines = 0;
+      passes++;
+      if (aRedessiner) aRedessiner();
+      return;
+    }
     tamponEtat.complet = true;
     remplissage = null;
   } else if (aRedessiner) {
