@@ -344,7 +344,7 @@ select { width: 100%; }
   color: #e8e8ea;
   font-size: 12px;
   line-height: 1.35;
-  pointer-events: none;   /* ne doit jamais voler le survol a la pastille */
+  pointer-events: auto;   /* elle porte des boutons, elle doit etre cliquable */
   box-shadow: 0 4px 16px rgba(0, 0, 0, .5);
 }
 .mq-bulle.visible { display: block; }
@@ -365,3 +365,85 @@ select { width: 100%; }
   color: #d8a24a;
   font-variant-numeric: tabular-nums;
 }
+
+.mq-bulle-ouvrir, .mq-bulle-tout {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #6fb6ff;
+  font: inherit;
+  cursor: pointer;
+}
+.mq-bulle-ouvrir:hover, .mq-bulle-tout:hover { text-decoration: underline; }
+.mq-bulle-tout {
+  display: block;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #3a3a42;
+  width: 100%;
+  text-align: left;
+  font-size: 11px;
+}
+
+/* Fenetre "toute la table de loot". */
+.loot-fenetre {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .55);
+}
+.loot-fenetre.visible { display: flex; }
+.loot-cadre {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 92vw);
+  max-height: 84vh;
+  border: 1px solid #4a4a52;
+  border-radius: 8px;
+  background: #16161a;
+  color: #e8e8ea;
+  font-size: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .6);
+}
+.loot-tete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #2e2e36;
+}
+.loot-fil { flex: 1; font-size: 13px; }
+.loot-fil .loot-sep { margin: 0 6px; color: #6a6a72; }
+.loot-lien {
+  padding: 0; border: 0; background: none;
+  color: #6fb6ff; font: inherit; cursor: pointer;
+}
+.loot-lien:hover { text-decoration: underline; }
+.loot-fermer {
+  border: 0; background: none; color: #9a9aa2;
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.loot-fermer:hover { color: #e8e8ea; }
+.loot-corps { overflow: auto; padding: 4px 12px 14px; }
+.loot-note { color: #9a9aa2; }
+.loot-bloc { margin-top: 12px; }
+.loot-bloc h3 { margin: 0; font-size: 13px; }
+.loot-soustitre { color: #9a9aa2; font-size: 11px; margin: 1px 0 5px; }
+.loot-bloc table { border-collapse: collapse; width: 100%; }
+.loot-bloc td { padding: 1px 0 1px 10px; vertical-align: top; }
+.loot-bloc .loot-pct {
+  padding-left: 0; width: 54px; text-align: right;
+  color: #d8a24a; font-variant-numeric: tabular-nums;
+}
+.loot-bloc .loot-poids {
+  width: 58px; text-align: right;
+  color: #6a6a72; font-variant-numeric: tabular-nums;
+}
+.loot-ouvrir {
+  padding: 0; border: 0; background: none;
+  color: #6fb6ff; font: inherit; cursor: pointer;
+}
+.loot-ouvrir:hover { text-decoration: underline; }

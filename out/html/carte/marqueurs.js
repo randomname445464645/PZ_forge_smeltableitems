@@ -1,6 +1,6 @@
 // Chargement, filtrage, affichage et liste des marqueurs.
 //
-// markers.json contient 3508 entrees {x, y, z, cat, t, d}, en coordonnees
+// markers.json contient 3514 entrees {x, y, z, cat, t, d}, en coordonnees
 // MONDE (celles que le jeu affiche). Verifie contre rooms/marks.json de
 // pzmap2dzi : les rectangles de pieces tombent exactement sur les batiments,
 // et les marqueurs tombent dans les bonnes pieces.
@@ -13,6 +13,7 @@
 import { vue, echelle, mondeVersEcranX, mondeVersEcranY, centreMonde,
          empriseMondeVisible } from './vue.js';
 import * as loot from './loot.js';
+import { initTableLoot, ouvrirPiece, ouvrirContenant } from './loot-table.js';
 
 const VERSION_ICONES = 4;   // le cache des icones est tenace, on le contourne
 
@@ -35,14 +36,14 @@ export const CATEGORIES = [
 const FILTRES_DEFAUT = ['top', 'or', 'billets', 'valeur', 'armes'];
 
 // Les etiquettes se chevauchent vite dans les zones denses : on ne les affiche
-// en masse qu'a partir de 4 px par case. Les categories rares (360 marqueurs en
+// en masse qu'a partir de 4 px par case. Les categories rares (366 marqueurs en
 // tout) restent nommees bien plus tot, c'est le cas ou on veut lire le nom.
 const ZOOM_ETIQUETTES = 2;
 const ZOOM_ETIQUETTES_RARES = -1;
 const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 
 // Priorite de dessin. L'ordre de CATEGORIES va du plus rare au plus courant :
-// 'top' (23 marqueurs), 'or' (181), 'billets' (156)... 'labo' (87). On s'en sert
+// 'top' (23 marqueurs), 'or' (181), 'billets' (162)... 'labo' (87). On s'en sert
 // comme z-index.
 //
 // Necessaire parce que 141 positions portent DEUX marqueurs exactement aux
@@ -76,8 +77,10 @@ let auClic = () => {};
 
 // Piece -> objets qui peuvent y apparaitre, produit par
 // outils/marqueurs/extraire-loot.py depuis les tables de loot du jeu.
-// 117 Ko, charge en parallele des marqueurs. L'infobulle s'en passe s'il
-// manque : elle affiche juste le nom et les coordonnees, comme avant.
+// 309 Ko, charge en parallele des marqueurs. L'infobulle s'en passe s'il
+// manque : elle affiche juste le nom et les coordonnees, comme avant. Le
+// detail complet est dans loot-tables.json, 1,1 Mo, charge seulement quand on
+// ouvre la fenetre (voir loot-table.js).
 let loots = null;
 // Le nom de piece est le premier champ de la description : "gunstore · 10x5 ·
 // vanilla". Les marqueurs ecrits a la main ne suivent pas ce format, ils
@@ -109,7 +112,7 @@ export async function chargerMarqueurs(url = 'markers.json') {
 
   fetch('carte/loot-pieces.json')
     .then(r => (r.ok ? r.json() : null))
-    .then(d => { loots = d; })
+    .then(d => { loots = d; initTableLoot(d); })
     .catch(() => { loots = null; });
 
   const sauvegarde = lireFiltres();
@@ -157,18 +160,37 @@ export function empriseActifs() {
 // position fixe : l'attribut title natif met une seconde a sortir et ne sait
 // pas mettre un tableau en forme, ce qui va mal avec quinze lignes d'objets.
 let bulle = null;
+let minuterieBulle = 0;
+
+// La bulle porte des boutons, donc elle doit recevoir la souris. Mais elle
+// est posee A COTE de la pastille, avec un jour de 10 px : quitter la
+// pastille pour aller dans la bulle traverse le vide et declencherait la
+// fermeture. D'ou le sursis, annule des que la souris arrive dans la bulle.
+const SURSIS_BULLE = 260;   // ms
 
 function bulleElement() {
   if (!bulle) {
     bulle = document.createElement('div');
     bulle.className = 'mq-bulle';
+    bulle.addEventListener('mouseenter', () => clearTimeout(minuterieBulle));
+    bulle.addEventListener('mouseleave', cacherBulle);
+    // La carte se deplace au glisser : un clic dans la bulle ne doit pas
+    // partir dans le fond de carte.
+    bulle.addEventListener('mousedown', e => e.stopPropagation());
+    bulle.addEventListener('wheel', e => e.stopPropagation());
     document.body.appendChild(bulle);
   }
   return bulle;
 }
 
 function cacherBulle() {
+  clearTimeout(minuterieBulle);
   if (bulle) bulle.classList.remove('visible');
+}
+
+function cacherBulleBientot() {
+  clearTimeout(minuterieBulle);
+  minuterieBulle = setTimeout(cacherBulle, SURSIS_BULLE);
 }
 
 /** Contenu de l'infobulle : le lieu, puis ce qui peut y apparaitre. */
@@ -186,7 +208,8 @@ function remplirBulle(m, el) {
   b.appendChild(sous);
 
   const piece = nomPiece(m);
-  const liste = piece && loots ? loots[piece] : null;
+  const fiche = piece && loots ? loots[piece] : null;
+  const liste = fiche && fiche.t;
   if (liste && liste.length) {
     const entete = document.createElement('div');
     entete.className = 'mq-bulle-entete';
@@ -197,18 +220,36 @@ function remplirBulle(m, el) {
     b.appendChild(entete);
 
     const table = document.createElement('table');
-    for (const [nom, chance] of liste) {
+    for (const ligne of liste) {
       const tr = document.createElement('tr');
       const tdc = document.createElement('td');
       tdc.className = 'mq-bulle-chance';
-      tdc.textContent = garanti ? '' : chance + ' %';
+      tdc.textContent = garanti ? '' : ligne[1] + ' %';
       const tdn = document.createElement('td');
-      tdn.textContent = nom;
+      if (ligne.length > 2) {
+        // Un conteneur : ce qu'il y a dedans compte plus que lui.
+        const bt = document.createElement('button');
+        bt.className = 'mq-bulle-ouvrir';
+        bt.textContent = ligne[0] + ' \u25b8';
+        bt.title = 'Voir ce qu\'il y a dedans';
+        bt.addEventListener('click', () => ouvrirContenant(ligne[2], ligne[0]));
+        tdn.appendChild(bt);
+      } else {
+        tdn.textContent = ligne[0];
+      }
       tr.appendChild(tdc);
       tr.appendChild(tdn);
       table.appendChild(tr);
     }
     b.appendChild(table);
+  }
+
+  if (piece && loots && loots[piece] && (loots[piece].m || []).length) {
+    const pied = document.createElement('button');
+    pied.className = 'mq-bulle-tout';
+    pied.textContent = 'voir toute la table de loot';
+    pied.addEventListener('click', () => ouvrirPiece(piece, m.t));
+    b.appendChild(pied);
   }
 
   // Place a cote de la pastille, rabattue dans la fenetre si ca deborde.
@@ -228,9 +269,9 @@ function creerElement(index, m) {
   el.className = 'mq mq-' + m.cat;
   el.dataset.index = index;
   // Remplie au survol et pas ici : la table de loot arrive apres les
-  // marqueurs, et construire 3508 bulles d'avance ne sert a rien.
+  // marqueurs, et construire 3514 bulles d'avance ne sert a rien.
   el.addEventListener('mouseenter', () => remplirBulle(m, el));
-  el.addEventListener('mouseleave', cacherBulle);
+  el.addEventListener('mouseleave', cacherBulleBientot);
   // Plus la categorie est rare, plus elle passe devant.
   el.style.zIndex = PRIORITE.get(m.cat) || 0;
   const pastille = document.createElement('i');

@@ -103,11 +103,24 @@ PIECES_RARES = {
     'nolansoffice':    ('billets', 300),   # NolansDesk
     'cardealershipoffice': ('billets', 136),
     'changeroomjockey':    ('billets', 124),
+    'walletshop':      ('billets', None),  # voir ci-dessous
 }
+
+# walletshop n'a pas de score au sens ci-dessus parce que son argent n'est pas
+# dans la table du meuble : CrateWallets donne des portefeuilles, et chaque
+# portefeuille est lui-meme un conteneur dont la table est pleine de billets.
+# En suivant les conteneurs, c'est 68 % par tirage, plus que le labo de drogue
+# et plus que le strip-club. C'est la piece a billets la plus rentable du jeu
+# et elle n'avait aucune pastille.
+#
+# Pas retenues au meme titre : bandlivingroom, musicschool et BandPractice ont
+# bien de l'or, mais a 3,8 %, alors que la moins bonne piece deja marquee en
+# 'or' est a 16,9 %.
 
 # Titre francais des pieces rares qui n'ont pas de categorie normale.
 LIBELLES_RARES = {
     'departmentstore':     'Grand magasin',
+    'walletshop':          'Maroquinerie',
     'stripclub':           'Club de striptease',
     'stripclubvip':        'Club de striptease, carre VIP',
     'nolansoffice':        'Bureau de Nolan',
@@ -148,7 +161,11 @@ PIECES_TOP = {
     'prisonstorage':        "Reserve d'armes de prison",  # 6
 }
 
-FORMAT_EXTRAIT = re.compile(r'^[a-z0-9]+ · \d+x\d+ · ')
+# Reconnait une description produite par l'extraction, par opposition aux
+# marqueurs ecrits a la main qu'on conserve tels quels. Le motif ne prenait
+# que les minuscules : SurvivorCache2 et garage_ranger etaient donc classes
+# "ecrits a la main", figes dans le fichier et jamais regeneres.
+FORMAT_EXTRAIT = re.compile(r'^[A-Za-z0-9_]+ · \d+x\d+ · ')
 
 
 def charger_conf():
