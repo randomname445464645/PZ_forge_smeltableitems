@@ -36,6 +36,11 @@ pzmap2dzi/.git-upstream/
 # Releve des constructions produit par l'agent d'export : propre a chaque
 # joueur, grossit a chaque session, et n'a pas a etre partage.
 out/html/constructions.json
+out/html/constructions-sprites.json
+
+# Lien vers les 704 Mo de textures extraites, pour que le navigateur puisse
+# dessiner les vrais sprites. Regenerable par "main.py unpack".
+out/html/texture
 
 # Sortie de compilation de l'agent
 outils/agent-monde/classes/

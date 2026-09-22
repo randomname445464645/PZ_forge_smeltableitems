@@ -74,8 +74,46 @@ Jouer. L'agent écrit une ligne NDJSON par case nouvelle ou modifiée, et affich
 python3 outils/agent-monde/convertir.py
 ```
 
-qui produit `out/html/constructions.json`. Le viewer affiche alors une case
-« mes constructions » dans le panneau.
+qui produit deux fichiers dans `out/html/` :
+
+| Fichier | Contenu |
+|---|---|
+| `constructions.json` | les cases, avec leurs sprites en indices |
+| `constructions-sprites.json` | par sprite : dossier, taille, décalage `ox`/`oy` |
+
+Le viewer affiche alors une case « mes constructions » dans le panneau.
+
+### Les vraies tuiles
+
+Pour que le calque dessine les vrais sprites et pas seulement l'emprise, les
+textures extraites doivent être accessibles au serveur web :
+
+```bash
+ln -sfn /mnt/data/pz-render/out-iso/texture out/html/texture
+```
+
+Le rendu par sprites n'a lieu **qu'en isométrique et au-delà de 6 px par
+case**. En vue de dessus, dessiner des sprites isométriques n'aurait aucun
+sens ; trop dézoomé, ils seraient illisibles. Dans ces cas le calque retombe
+sur l'emprise dorée.
+
+La règle de dessin est reprise de `render_impl/base.py` et de `pzdzi.IsoDZI` :
+
+```
+bas_centre_x = (x - y) * 64
+bas_centre_y = (x + y + 2) * 32 - 192 * z
+sprite dessiné en (bas_centre + ox, bas_centre + oy)
+```
+
+64 et 32 sont `GRID_WIDTH` et `GRID_HEIGHT`, 192 est `LAYER_HEIGHT`. Le `+2`
+vient du `oy += dzi.sqr_height >> 1` de `base.py`, qui passe du centre du
+losange à son bas. Les décalages `ox`/`oy` sont propres à chaque sprite et
+vivent dans les métadonnées des PNG écrits par `unpack` ; le navigateur ne sait
+pas lire un bloc tEXt, d'où l'index produit par le convertisseur.
+
+Les cases sont dessinées dans l'ordre du peintre : étage croissant, puis
+profondeur isométrique croissante (`x + y`). Sans ce tri, un mur du fond
+recouvrirait un mur du premier plan.
 
 ## Limites
 
@@ -92,6 +130,12 @@ tourne en erreur en boucle sans faire tomber la JVM.
 Le filtre par défaut garde les cases contenant un `IsoThumpable`. **Les portes
 et fenêtres vanilla en sont aussi**, une maison d'origine intacte ressort donc.
 La classe est partagée, ce n'est pas un défaut du filtre.
+
+Les sprites venant de mods dont les textures n'ont pas été extraites sont
+absents de l'index et ne se dessinent pas. `unpack` n'extrait que les mods
+déclarés avec `texture: true` dans `conf/mod/pztogether.txt`. Sur un relevé de
+1957 cases, quatre sprites `BuildingCraft_*` manquaient pour cette raison. Ils
+ne sont jamais demandés au serveur, le convertisseur les signale.
 
 La table de déduplication est bornée à 3 millions de cases ; au-delà elle
 repart de zéro et le fichier contient des doublons, que `convertir.py`

@@ -17,7 +17,8 @@ import { initRues, basculerRues, dessinerRues } from './rues.js';
 import * as loot from './loot.js';
 import { initConstructions, basculerConstructions, dessinerConstructions,
          disponible as constructionsDisponibles,
-         nombreCases as nbConstructions } from './constructions.js';
+         nombreCases as nbConstructions,
+         surChargement as constructionsSurChargement } from './constructions.js';
 
 const $ = id => document.getElementById(id);
 
@@ -497,6 +498,9 @@ async function demarrer() {
   await basculerConstructions(true);
   if (constructionsDisponibles()) {
     $('labelConstructions').hidden = false;
+    // Les sprites arrivent de facon asynchrone : il faut redessiner a chaque
+    // image chargee, sinon le calque reste incomplet jusqu'au prochain geste.
+    constructionsSurChargement(() => demanderRendu());
     $('nbConstructions').textContent = nbConstructions() + ' cases';
     let coche = true;
     try { coche = localStorage.getItem('pzcarte.constructions') !== '0'; } catch (e) {}
