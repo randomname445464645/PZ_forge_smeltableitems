@@ -10,9 +10,11 @@ import {
 } from './vue.js';
 import {
   CATEGORIES, etat, initMarqueurs, chargerMarqueurs, enregistrerFiltres,
-  dessinerMarqueurs, reinitialiserAffichage, listerProches,
+  dessinerMarqueurs, reinitialiserAffichage, listerPour,
   nombreActifs, empriseActifs,
 } from './marqueurs.js';
+import * as bases from './bases.js';
+import * as trajet from './itineraire.js';
 import { initRues, basculerRues, dessinerRues } from './rues.js';
 import * as loot from './loot.js';
 import { exporterVue } from './exporter.js';
@@ -57,7 +59,9 @@ function demanderRendu(majListeAussi = false) {
 function rendre() {
   dessinerTuiles();
   dessinerRues();
+  trajet.dessinerItineraire();
   dessinerMarqueurs();
+  bases.dessinerBases();
   majHud();
 }
 
@@ -127,37 +131,102 @@ function toutCocher(valeur) {
 
 // --- liste laterale --------------------------------------------------------
 
+// La liste etait refaite de zero a chaque deplacement : innerHTML = '' puis
+// 200 lignes reconstruites en HTML. Mesure avant changement, 3514 marqueurs,
+// 200 lignes : 8,4 ms en moyenne, 19,4 ms au pire, soit plus d'une trame a
+// 60 Hz, et ca tombait 140 ms apres chaque geste.
+//
+// Maintenant les lignes sont creees une fois et reutilisees : on ne touche
+// qu'au texte qui a change. Les lignes en trop sont cachees, pas detruites.
+const lignesListe = [];
+
+function ligneListe(i) {
+  if (lignesListe[i]) return lignesListe[i];
+  const el = document.createElement('div');
+  el.className = 'ligne';
+  el.innerHTML =
+    '<div class="titre"><b class="pastille"></b><span class="nom"></span>'
+    + '<button class="chrono"></button></div>'
+    + '<div class="meta"></div><div class="loot"></div><div class="desc"></div>';
+  const r = {
+    el,
+    pastille: el.querySelector('.pastille'),
+    nom: el.querySelector('.nom'),
+    chrono: el.querySelector('.chrono'),
+    meta: el.querySelector('.meta'),
+    loot: el.querySelector('.loot'),
+    desc: el.querySelector('.desc'),
+    index: -1,
+  };
+  el.addEventListener('click', () => { if (r.index >= 0) selectionner(r.index, true); });
+  lignesListe[i] = r;
+  $('liste').appendChild(el);
+  return r;
+}
+
+function optionsListe() {
+  const tri = document.querySelector('input[name="tri"]:checked');
+  return {
+    limite: 200,
+    texte: $('recherche').value || '',
+    tri: tri ? tri.value : 'distance',
+    masquerPilles: $('masquerPilles').checked,
+    filtreLoot: m => loot.date(m) > 0 && loot.estFrais(m),
+  };
+}
+
 function majListe() {
   const hote = $('liste');
-  const proches = listerProches(200);
-  const c = centreMonde();
-  hote.innerHTML = '';
-  if (!proches.length) {
-    hote.innerHTML = '<p class="vide">Aucune categorie cochee.</p>';
-    return;
+  const { total, lignes } = listerPour(optionsListe());
+  let vide = hote.querySelector('.vide');
+  if (!vide) {
+    vide = document.createElement('p');
+    vide.className = 'vide';
+    hote.appendChild(vide);
   }
-  const frag = document.createDocumentFragment();
-  for (const { index, m, d2 } of proches) {
-    const ligne = document.createElement('div');
-    ligne.className = 'ligne' + (index === etat.selection ? ' active' : '');
-    const distance = Math.round(Math.sqrt(d2));
+  vide.hidden = lignes.length > 0;
+  if (!lignes.length) {
+    vide.textContent = $('recherche').value
+      ? 'Rien ne correspond a cette recherche.'
+      : 'Aucune categorie cochee.';
+  }
+
+  let actif = null;
+  lignes.forEach((entree, i) => {
+    const { index, m, d2 } = entree;
+    const r = ligneListe(i);
+    r.index = index;
+    r.el.hidden = false;
     const etatLoot = loot.etatTexte(m);
     const frais = etatLoot !== null && loot.estFrais(m);
-    if (etatLoot !== null) ligne.classList.add(frais ? 'pille' : 'repop');
-    ligne.innerHTML =
-      `<div class="titre"><b class="pastille" style="background-image:url(icons/${m.cat}.png?v=4)"></b>`
-      + `${echapper(m.t)}`
-      + `<button class="chrono" data-index="${index}" title="${etatLoot ? 'Remettre a zero le chrono' : 'Marquer comme pille maintenant'}">`
-      + `${etatLoot ? '\u21bb' : 'pille'}</button></div>`
-      + `<div class="meta">${m.cat} · x ${m.x} y ${m.y} z ${m.z} · ${distance} cases</div>`
-      + (etatLoot ? `<div class="loot">${echapper(etatLoot)}</div>` : '')
-      + (m.d ? `<div class="desc">${echapper(m.d)}</div>` : '');
-    ligne.addEventListener('click', () => selectionner(index, true));
-    frag.appendChild(ligne);
+    const classe = 'ligne'
+      + (index === etat.selection ? ' active' : '')
+      + (etatLoot === null ? '' : (frais ? ' pille' : ' repop'));
+    if (r.el.className !== classe) r.el.className = classe;
+    if (index === etat.selection) actif = r.el;
+
+    const fond = `url(icons/${m.cat}.png?v=4)`;
+    if (r.pastille.style.backgroundImage !== fond) r.pastille.style.backgroundImage = fond;
+    majTexte(r.nom, m.t);
+    majTexte(r.chrono, etatLoot ? '\u21bb' : 'pille');
+    r.chrono.title = etatLoot ? 'Remettre a zero le chrono' : 'Marquer comme pille maintenant';
+    r.chrono.dataset.index = index;
+    majTexte(r.meta, `${m.cat} · x ${m.x} y ${m.y} z ${m.z} · ${Math.round(Math.sqrt(d2))} cases`);
+    majTexte(r.loot, etatLoot || '');
+    r.loot.hidden = !etatLoot;
+    majTexte(r.desc, m.d || '');
+    r.desc.hidden = !m.d;
+  });
+  for (let i = lignes.length; i < lignesListe.length; i++) {
+    lignesListe[i].el.hidden = true;
+    lignesListe[i].index = -1;
   }
-  hote.appendChild(frag);
-  const active = hote.querySelector('.ligne.active');
-  if (active) active.scrollIntoView({ block: 'nearest' });
+  $('hudListe') && ($('hudListe').textContent = total);
+  if (actif) actif.scrollIntoView({ block: 'nearest' });
+}
+
+function majTexte(el, valeur) {
+  if (el.textContent !== valeur) el.textContent = valeur;
 }
 
 // Un seul ecouteur pose une fois pour toutes : la liste est reconstruite a
@@ -188,6 +257,7 @@ function selectionner(index, recentrer) {
 // --- navigation ------------------------------------------------------------
 
 let glisse = null;
+let glisseABouge = false;
 
 carte.addEventListener('dragstart', e => e.preventDefault());
 plan.addEventListener('dragstart', e => e.preventDefault());
@@ -196,6 +266,7 @@ carte.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
   e.preventDefault();               // coupe le glisser-deposer natif des images
   glisse = { x: e.clientX, y: e.clientY, bouge: false };
+  glisseABouge = false;
   carte.classList.add('glisse');
 });
 
@@ -207,6 +278,7 @@ window.addEventListener('mousemove', e => {
     const dx = e.clientX - glisse.x, dy = e.clientY - glisse.y;
     if (dx || dy) {
       glisse.bouge = true;
+      glisseABouge = true;
       glisse.x = e.clientX; glisse.y = e.clientY;
       deplacer(dx, dy);
       demanderRendu(true);
@@ -219,6 +291,14 @@ window.addEventListener('mousemove', e => {
 window.addEventListener('mouseup', () => {
   glisse = null;
   carte.classList.remove('glisse');
+});
+
+// Un clic, c'est un mousedown suivi d'un mouseup sans deplacement. Sans ce
+// test, tout glisser de la carte poserait une base ou une etape a l'arrivee.
+carte.addEventListener('click', e => {
+  if (glisseABouge) return;
+  if (e.target.closest('.mq') || e.target.closest('.base')) return;
+  if (clicCarte(e)) e.preventDefault();
 });
 
 // Un cran de molette = UN palier de zoom exact, jamais plus.
@@ -249,6 +329,14 @@ carte.addEventListener('wheel', e => {
 }, { passive: false });
 
 window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && (bases.etat.pose || trajet.etat.mode !== 'off')) {
+    bases.etat.pose = false;
+    trajet.definirMode('off');
+    majConsigne();
+    majPanneauBases();
+    demanderRendu();
+    return;
+  }
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   const pas = 120;
   if (e.key === '+' || e.key === '=') { zoomer(1, vue.largeur / 2, vue.hauteur / 2); demanderRendu(true); }
@@ -570,6 +658,338 @@ function restaurerVue() {
   return false;
 }
 
+// --- onglets du panneau ----------------------------------------------------
+
+function initOnglets() {
+  const boutons = [...document.querySelectorAll('#onglets button')];
+  const montrer = (nom) => {
+    for (const b of boutons) b.classList.toggle('actif', b.dataset.onglet === nom);
+    for (const v of document.querySelectorAll('.volet')) {
+      v.hidden = v.dataset.volet !== nom;
+    }
+    try { localStorage.setItem('pzcarte.onglet', nom); } catch (e) {}
+    if (nom === 'lieux') majListe();
+    if (nom === 'bases') majPanneauBases();
+    if (nom === 'trajet') majPanneauTrajet();
+  };
+  for (const b of boutons) b.addEventListener('click', () => montrer(b.dataset.onglet));
+  let voulu = 'lieux';
+  try { voulu = localStorage.getItem('pzcarte.onglet') || 'lieux'; } catch (e) {}
+  if (!boutons.some(b => b.dataset.onglet === voulu)) voulu = 'lieux';
+  montrer(voulu);
+  return montrer;
+}
+
+let allerOnglet = () => {};
+
+// --- recherche et tri de la liste ------------------------------------------
+
+function initListe() {
+  let minuteur = 0;
+  const relancer = () => {
+    clearTimeout(minuteur);
+    minuteur = setTimeout(majListe, 120);
+  };
+  $('recherche').addEventListener('input', relancer);
+  $('recherche').addEventListener('search', relancer);
+  $('masquerPilles').addEventListener('change', majListe);
+  for (const r of document.querySelectorAll('input[name="tri"]')) {
+    r.addEventListener('change', majListe);
+  }
+}
+
+// --- consigne flottante ----------------------------------------------------
+
+function consigne(texte) {
+  const el = $('consigne');
+  el.textContent = texte || '';
+  el.hidden = !texte;
+  document.body.classList.toggle('pose-en-cours', !!texte);
+}
+
+function majConsigne() {
+  if (bases.etat.pose) {
+    consigne('Clique sur la carte pour poser la base. Echap pour annuler.');
+  } else if (trajet.etat.mode !== 'off') {
+    consigne(trajet.etat.mode === 'auto'
+      ? 'Clique les points de passage. Le trajet suit les routes. Echap pour arreter.'
+      : 'Clique les points de passage. Trace en ligne droite. Echap pour arreter.');
+  } else {
+    consigne('');
+  }
+}
+
+// --- bases -----------------------------------------------------------------
+
+function majPanneauBases() {
+  const hote = $('listeBases');
+  hote.textContent = '';
+  $('nbBases').textContent = bases.etat.liste.length + (bases.etat.liste.length > 1 ? ' bases' : ' base');
+  $('poserBase').classList.toggle('actif', bases.etat.pose);
+  if (!bases.etat.liste.length) {
+    const p = document.createElement('p');
+    p.className = 'vide';
+    p.textContent = 'Aucune base posee.';
+    hote.appendChild(p);
+    return;
+  }
+  for (const b of bases.etat.liste) {
+    hote.appendChild(carteBase(b));
+  }
+}
+
+function carteBase(b) {
+  const el = document.createElement('div');
+  el.className = 'carte-base';
+
+  const tete = document.createElement('div');
+  tete.className = 'tete';
+  const puce = document.createElement('b');
+  puce.className = 'puce';
+  puce.style.background = b.couleur;
+  const nom = document.createElement('input');
+  nom.className = 'nom';
+  nom.value = b.nom;
+  nom.addEventListener('change', () => bases.modifier(b.id, { nom: nom.value.trim() || 'Base' }));
+  tete.appendChild(puce);
+  tete.appendChild(nom);
+  el.appendChild(tete);
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = `x ${b.x}  y ${b.y}  z ${b.z}`;
+  el.appendChild(meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  actions.appendChild(bouton('aller', () => {
+    bases.etat.selection = b.id;
+    centrerSur(b.x, b.y, Math.max(vue.zoom, 1));
+    demanderRendu(true);
+  }));
+  actions.appendChild(bouton('depart', () => {
+    partirDe(b);
+  }));
+  actions.appendChild(bouton('arrivee', () => {
+    allerVers(b);
+  }));
+  actions.appendChild(bouton('supprimer', () => {
+    if (confirm(`Supprimer la base "${b.nom}" ?`)) {
+      bases.supprimer(b.id);
+      demanderRendu();
+    }
+  }));
+  const couleurs = document.createElement('div');
+  couleurs.className = 'couleurs';
+  for (const [c] of bases.COULEURS) {
+    const p = document.createElement('b');
+    p.style.background = c;
+    p.title = 'changer la couleur';
+    p.addEventListener('click', () => { bases.modifier(b.id, { couleur: c }); demanderRendu(); });
+    couleurs.appendChild(p);
+  }
+  actions.appendChild(couleurs);
+  el.appendChild(actions);
+  return el;
+}
+
+function bouton(texte, action) {
+  const b = document.createElement('button');
+  b.textContent = texte;
+  b.addEventListener('click', action);
+  return b;
+}
+
+function initBasesPanneau() {
+  $('poserBase').addEventListener('click', () => {
+    bases.etat.pose = !bases.etat.pose;
+    if (bases.etat.pose) trajet.definirMode('off');
+    majConsigne();
+    majPanneauBases();
+  });
+  $('baseIci').addEventListener('click', () => {
+    const c = centreMonde();
+    poserBase(c.x, c.y);
+  });
+  $('calqueBases').addEventListener('change', function () {
+    bases.etat.visible = this.checked;
+    demanderRendu();
+  });
+  $('exporterBases').addEventListener('click', () => {
+    const blob = new Blob([bases.exporterJSON()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bases-pz.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    dire($('etatBases'), `${bases.etat.liste.length} exportees`, 'ok');
+  });
+  $('importerBases').addEventListener('click', () => {
+    const champ = document.createElement('input');
+    champ.type = 'file';
+    champ.accept = 'application/json,.json';
+    champ.addEventListener('change', async () => {
+      const f = champ.files && champ.files[0];
+      if (!f) return;
+      try {
+        const n = bases.importerJSON(await f.text());
+        dire($('etatBases'), `${n} ajoutee${n > 1 ? 's' : ''}`, 'ok');
+        demanderRendu();
+      } catch (e) {
+        dire($('etatBases'), e.message || 'fichier illisible', 'erreur');
+      }
+    });
+    champ.click();
+  });
+}
+
+function dire(el, texte, classe) {
+  el.className = 'reel' + (classe ? ' ' + classe : '');
+  el.textContent = texte;
+}
+
+function poserBase(x, y) {
+  const b = bases.ajouter(x, y, 0);
+  bases.etat.pose = false;
+  bases.etat.selection = b.id;
+  majConsigne();
+  allerOnglet('bases');
+  demanderRendu();
+}
+
+// --- trajet ----------------------------------------------------------------
+
+function partirDe(p) {
+  const suite = trajet.etat.etapes.slice(1);
+  trajet.definirEtapes([{ x: p.x, y: p.y }, ...suite]);
+  if (trajet.etat.mode === 'off') trajet.definirMode('auto');
+  allerOnglet('trajet');
+}
+
+function allerVers(p) {
+  const debut = trajet.etat.etapes.length ? [trajet.etat.etapes[0]] : [];
+  trajet.definirEtapes([...debut, { x: p.x, y: p.y }]);
+  if (trajet.etat.mode === 'off') trajet.definirMode('auto');
+  allerOnglet('trajet');
+}
+
+function initTrajetPanneau() {
+  for (const b of document.querySelectorAll('[data-trajet]')) {
+    b.addEventListener('click', () => {
+      const m = b.dataset.trajet;
+      if (m !== 'off') bases.etat.pose = false;
+      trajet.definirMode(m);
+      majConsigne();
+      majPanneauBases();
+    });
+  }
+  $('trajetVider').addEventListener('click', () => trajet.vider());
+  $('trajetInverser').addEventListener('click', () => {
+    trajet.definirEtapes(trajet.etat.etapes.slice().reverse());
+  });
+  $('trajetCadrer').addEventListener('click', () => {
+    const pts = trajet.etat.trace || trajet.etat.etapes;
+    if (!pts || !pts.length) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of pts) {
+      x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+      y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+    }
+    cadrerSur(x0, y0, x1, y1, 60);
+    demanderRendu(true);
+  });
+}
+
+function majPanneauTrajet() {
+  for (const b of document.querySelectorAll('[data-trajet]')) {
+    b.classList.toggle('actif', b.dataset.trajet === trajet.etat.mode);
+  }
+  $('aideTrajet').textContent = trajet.etat.mode === 'auto'
+    ? "Le calcul passe par une grille de cout lue dans les tuiles du jeu, a 8 cases par pixel. Le bitume coute 1, un sol interieur 2, l'herbe 5, l'eau est infranchissable."
+    : trajet.etat.mode === 'manuel'
+      ? 'Les etapes se relient en ligne droite, sans tenir compte du terrain.'
+      : 'Choisis auto ou manuel, puis clique des points sur la carte.';
+
+  const r = $('resumeTrajet');
+  r.textContent = '';
+  if (trajet.etat.distance > 0) {
+    const gros = document.createElement('div');
+    gros.className = 'gros';
+    gros.textContent = trajet.etat.distance.toLocaleString('fr-FR') + ' cases';
+    r.appendChild(gros);
+    const t = document.createElement('table');
+    for (const [nom, secondes] of trajet.durees()) {
+      const tr = document.createElement('tr');
+      const a = document.createElement('td');
+      a.textContent = nom;
+      const b = document.createElement('td');
+      b.className = 'v';
+      b.textContent = dureeTexte(secondes);
+      tr.appendChild(a); tr.appendChild(b);
+      t.appendChild(tr);
+    }
+    r.appendChild(t);
+    const note = document.createElement('div');
+    note.className = 'aide';
+    note.textContent = 'Vitesses supposees (1,4 / 3 / 14 cases par seconde), '
+      + 'pas mesurees dans le jeu : a prendre comme un ordre de grandeur.';
+    r.appendChild(note);
+  }
+  if (trajet.etat.message) {
+    const m = document.createElement('div');
+    m.className = 'aide';
+    m.textContent = trajet.etat.message;
+    r.appendChild(m);
+  }
+
+  const hote = $('listeEtapes');
+  hote.textContent = '';
+  trajet.etat.etapes.forEach((p, i) => {
+    const el = document.createElement('div');
+    el.className = 'etape'
+      + (i === 0 ? ' depart' : '')
+      + (i === trajet.etat.etapes.length - 1 && i > 0 ? ' arrivee' : '');
+    const rang = document.createElement('b');
+    rang.className = 'rang';
+    rang.textContent = String(i + 1);
+    const ou = document.createElement('span');
+    ou.className = 'ou';
+    ou.textContent = `x ${p.x}  y ${p.y}`;
+    el.appendChild(rang);
+    el.appendChild(ou);
+    el.appendChild(bouton('voir', () => {
+      centrerSur(p.x, p.y, Math.max(vue.zoom, 1));
+      demanderRendu(true);
+    }));
+    el.appendChild(bouton('x', () => trajet.retirerEtape(i)));
+    hote.appendChild(el);
+  });
+}
+
+function dureeTexte(s) {
+  if (s < 60) return s + ' s';
+  if (s < 3600) return Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0');
+  return Math.floor(s / 3600) + ' h ' + String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+}
+
+// --- clic sur la carte -----------------------------------------------------
+
+function clicCarte(e) {
+  const r = carte.getBoundingClientRect();
+  const ex = e.clientX - r.left, ey = e.clientY - r.top;
+  const x = ecranVersMondeX(ex, ey), y = ecranVersMondeY(ex, ey);
+  if (bases.etat.pose) {
+    poserBase(x, y);
+    return true;
+  }
+  if (trajet.etat.mode !== 'off') {
+    trajet.ajouterEtape(x, y);
+    return true;
+  }
+  return false;
+}
+
 // --- demarrage -------------------------------------------------------------
 
 async function demarrer() {
@@ -577,6 +997,11 @@ async function demarrer() {
   initRues($('rues'));
   initConstructions();
   initMarqueurs($('marqueurs'), i => selectionner(i, false));
+  // majConsigne dans les deux rappels : le mode peut changer autrement que
+  // par le bouton (Echap, une base posee, un depart choisi depuis une fiche),
+  // et la consigne flottante doit suivre dans tous les cas.
+  bases.initBases($('bases'), () => { majPanneauBases(); majConsigne(); demanderRendu(); });
+  trajet.initItineraire($('trace'), () => { majPanneauTrajet(); majConsigne(); demanderRendu(); });
   mesurer();
 
   // La geometrie est lue dans les fichiers de rendu : le viewer s'adapte tout
@@ -602,6 +1027,15 @@ async function demarrer() {
 
   initLoot();
   initExport();
+  initListe();
+  initBasesPanneau();
+  initTrajetPanneau();
+  allerOnglet = initOnglets();
+  // Les deux panneaux ne sont rafraichis qu'a l'ouverture de leur onglet :
+  // sans ce premier passage, le compteur de bases reste vide tant qu'on n'y
+  // est pas alle une fois.
+  majPanneauBases();
+  majPanneauTrajet();
   remplirVilles();
   construireFiltres();
   enregistrerFiltres();   // fige l'etat par defaut des la premiere ouverture

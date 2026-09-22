@@ -36,14 +36,16 @@ html, body {
 body.replie #carte { inset: 0; }
 #carte.glisse { cursor: grabbing; }
 
-#plan, #rues, #marqueurs {
+#plan, #rues, #trace, #marqueurs, #bases {
   position: absolute;
   left: 0; top: 0;
   width: 100%; height: 100%;
 }
 #plan   { z-index: 1; }
 #rues   { z-index: 2; pointer-events: none; }
-#marqueurs { z-index: 3; pointer-events: none; }
+#trace  { z-index: 3; pointer-events: none; }
+#marqueurs { z-index: 4; pointer-events: none; }
+#bases  { z-index: 5; pointer-events: none; }
 
 /* Tuiles : positionnees en pixels CSS, jamais dans un conteneur transforme. */
 .tuile {
@@ -59,7 +61,6 @@ body.replie #carte { inset: 0; }
 /* .net est pose par le moteur quand on agrandit au-dela du 1:1 : la on veut
    des pixels francs, pas un flou d'interpolation. */
 #plan.net .tuile {
-  image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
 
@@ -74,6 +75,11 @@ body.replie #carte { inset: 0; }
   pointer-events: auto;
   cursor: pointer;
 }
+/* Les icones sont des PNG 32 px affiches a 18 px. image-rendering: pixelated
+   etait pose ici : en reduction il prend une colonne sur deux au plus proche
+   voisin, au rapport 32/18 qui n'est pas entier, et casse tout ce qui est fin
+   (le canon du fusil, le liseré du billet). pixelated sert a AGRANDIR du pixel
+   art, pas a le reduire. Le navigateur reduit tres bien tout seul. */
 .mq i {
   position: absolute;
   left: -13px; top: -13px;
@@ -84,7 +90,6 @@ body.replie #carte { inset: 0; }
   background-size: 18px 18px;
   background-repeat: no-repeat;
   background-position: center;
-  image-rendering: pixelated;
 }
 .mq span {
   display: none;
@@ -280,7 +285,6 @@ body.mode-iso #bascule { border-color: var(--accent, #6ea8fe); }
   background-size: 11px 11px;
   background-repeat: no-repeat;
   background-position: center;
-  image-rendering: pixelated;
 }
 
 .ligne-boutons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -447,3 +451,135 @@ select { width: 100%; }
   color: #6fb6ff; font: inherit; cursor: pointer;
 }
 .loot-ouvrir:hover { text-decoration: underline; }
+
+
+/* ---- Onglets du panneau ------------------------------------------------ */
+#onglets {
+  display: flex;
+  gap: 2px;
+  margin: 8px 0 2px;
+  border-bottom: 1px solid var(--trait);
+}
+#onglets button {
+  flex: 1;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--faible);
+  padding: 6px 4px;
+  font-size: 12px;
+}
+#onglets button:hover { color: var(--texte); background: rgba(255,255,255,.04); }
+#onglets button.actif { color: var(--texte); border-bottom-color: #59b7ff; }
+.volet { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.volet[hidden] { display: none; }
+.aide { margin: 8px 0 0; font-size: 11px; color: var(--faible); line-height: 1.4; }
+.resume { margin-top: 10px; font-size: 12px; }
+.resume .gros { font-size: 15px; font-weight: 600; }
+.resume table { border-collapse: collapse; margin-top: 4px; }
+.resume td { padding: 0 8px 0 0; color: var(--faible); }
+.resume td.v { color: var(--texte); font-variant-numeric: tabular-nums; }
+button.principal { border-color: #59b7ff; color: #cfe7ff; }
+button.actif { background: #3a4657; border-color: #59b7ff; color: #fff; }
+.ligne-tri { font-size: 11px; color: var(--faible); gap: 10px; }
+.ligne-tri label { display: flex; align-items: center; gap: 4px; }
+#recherche {
+  flex: 1;
+  background: #14161a;
+  color: var(--texte);
+  border: 1px solid var(--trait);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font: inherit;
+}
+
+/* Consigne flottante pendant une pose ou un trace. */
+#consigne {
+  position: fixed;
+  left: 50%; top: 14px;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 7px 14px;
+  border-radius: 20px;
+  background: rgba(20,20,24,.94);
+  border: 1px solid #59b7ff;
+  color: #cfe7ff;
+  font-size: 12px;
+  pointer-events: none;
+}
+#consigne[hidden] { display: none; }
+body.pose-en-cours #carte { cursor: crosshair; }
+
+/* ---- Bases ------------------------------------------------------------- */
+.base { position: absolute; pointer-events: auto; cursor: pointer; }
+.base i {
+  position: absolute;
+  left: -9px; top: -9px;
+  width: 18px; height: 18px;
+  border: 3px solid #4fc3d9;
+  border-radius: 4px;
+  background: rgba(20,20,24,.85);
+  box-shadow: 0 1px 4px rgba(0,0,0,.6);
+  transform: rotate(45deg);
+}
+.base span {
+  position: absolute;
+  left: 0; top: 14px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(0,0,0,.75);
+  pointer-events: none;
+}
+.base.selection i { box-shadow: 0 0 0 3px rgba(89,183,255,.6); }
+
+#listeBases, #listeEtapes { overflow: auto; flex: 1; min-height: 0; }
+.carte-base {
+  border: 1px solid var(--trait);
+  border-radius: 5px;
+  padding: 7px 8px;
+  margin-top: 8px;
+  background: #1b1f26;
+}
+.carte-base .tete { display: flex; align-items: center; gap: 6px; }
+.carte-base .puce {
+  width: 11px; height: 11px; flex: 0 0 11px;
+  border-radius: 3px; transform: rotate(45deg);
+}
+.carte-base input.nom {
+  flex: 1; min-width: 0;
+  background: none; border: 0; color: var(--texte);
+  font: inherit; font-weight: 600; padding: 1px 2px;
+}
+.carte-base input.nom:focus { background: #14161a; outline: 1px solid var(--trait); }
+.carte-base .meta { color: var(--faible); font-size: 11px; margin-top: 2px; }
+.carte-base .actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.carte-base .actions button { font-size: 11px; padding: 2px 7px; }
+.carte-base .couleurs { display: flex; gap: 4px; margin-left: auto; }
+.carte-base .couleurs b {
+  width: 12px; height: 12px; border-radius: 3px; cursor: pointer;
+  border: 1px solid rgba(0,0,0,.5);
+}
+
+/* ---- Etapes du trajet -------------------------------------------------- */
+.etape {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--trait);
+  font-size: 12px;
+}
+.etape .rang {
+  width: 18px; height: 18px; flex: 0 0 18px;
+  border-radius: 50%;
+  background: #2b2b33; color: #fff;
+  font-size: 10px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.etape.depart .rang { background: #5fbf72; }
+.etape.arrivee .rang { background: #e8735f; }
+.etape .ou { flex: 1; min-width: 0; color: var(--faible); }
+.etape button { font-size: 11px; padding: 1px 6px; }

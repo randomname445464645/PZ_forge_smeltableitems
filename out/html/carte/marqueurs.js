@@ -407,14 +407,52 @@ export function reinitialiserAffichage() {
  * Liste laterale : les marqueurs actifs les plus proches du centre de la vue,
  * tries par distance et plafonnes pour rester lisibles.
  */
-export function listerProches(limite = 200) {
+export function listerPour(options = {}) {
+  const { limite = 200, texte = '', tri = 'distance', masquerPilles = false,
+          filtreLoot = null } = options;
   const c = centreMonde();
+  const q = texte.trim().toLowerCase();
+  // La recherche porte aussi sur les objets de la table de loot : taper
+  // "lingot" doit sortir la bijouterie, pas seulement les pieces qui ont
+  // "lingot" dans leur nom.
+  const piecesTrouvees = q.length >= 3 && loots ? piecesAvecObjet(q) : null;
   const resultat = [];
   for (let i = 0; i < etat.tous.length; i++) {
     const m = etat.tous[i];
     if (!etat.filtres[m.cat]) continue;
+    if (masquerPilles && filtreLoot && filtreLoot(m)) continue;
+    if (q) {
+      const p = nomPiece(m);
+      const dedans = (m.t || '').toLowerCase().includes(q)
+        || (m.d || '').toLowerCase().includes(q)
+        || (piecesTrouvees && p && piecesTrouvees.has(p));
+      if (!dedans) continue;
+    }
     resultat.push({ index: i, m, d2: (m.x - c.x) ** 2 + (m.y - c.y) ** 2 });
   }
-  resultat.sort((a, b) => a.d2 - b.d2);
-  return resultat.slice(0, limite);
+  if (tri === 'nom') {
+    resultat.sort((a, b) => (a.m.t || '').localeCompare(b.m.t || '')
+                            || a.d2 - b.d2);
+  } else {
+    resultat.sort((a, b) => a.d2 - b.d2);
+  }
+  return { total: resultat.length, lignes: resultat.slice(0, limite) };
+}
+
+// Cache de la recherche par objet : la table est immuable, et retaper une
+// lettre relancerait sinon un parcours de 370 pieces et de leurs listes.
+const cacheObjets = new Map();
+
+function piecesAvecObjet(q) {
+  let trouve = cacheObjets.get(q);
+  if (trouve) return trouve;
+  trouve = new Set();
+  for (const [piece, fiche] of Object.entries(loots)) {
+    for (const ligne of (fiche.t || [])) {
+      if (String(ligne[0]).toLowerCase().includes(q)) { trouve.add(piece); break; }
+    }
+  }
+  if (cacheObjets.size > 60) cacheObjets.clear();
+  cacheObjets.set(q, trouve);
+  return trouve;
 }
