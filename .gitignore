@@ -18,14 +18,16 @@ out/html/map_data/mod_maps/*/base
 out/html/map_data/constructions
 out/html/map_data/rooms
 out/html/map_data/objects
-out/html/map_data/streets
 out/html/map_data/mod_maps/*/rooms
 out/html/map_data/mod_maps/*/objects
-out/html/map_data/mod_maps/*/streets
 out/html/map_data_sqr1/
 out/texture/
 out2/
 out3/
+
+# Les noms de rues, eux, sont versionnes : 283 Ko de polylignes en JSON, pas
+# une pyramide d'images, et sans eux la case "noms de rues" ne fait rien.
+
 
 # --- Environnement ----------------------------------------------------------
 .venv/
