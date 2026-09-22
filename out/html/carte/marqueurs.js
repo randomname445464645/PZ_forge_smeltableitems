@@ -1,6 +1,6 @@
 // Chargement, filtrage, affichage et liste des marqueurs.
 //
-// markers.json contient 1860 entrees {x, y, z, cat, t, d}, en coordonnees
+// markers.json contient 3486 entrees {x, y, z, cat, t, d}, en coordonnees
 // MONDE (celles que le jeu affiche). Verifie contre rooms/marks.json de
 // pzmap2dzi : les rectangles de pieces tombent exactement sur les batiments,
 // et les marqueurs tombent dans les bonnes pieces.
@@ -34,16 +34,15 @@ export const CATEGORIES = [
 // noir de pastilles.
 const FILTRES_DEFAUT = ['top', 'or', 'billets', 'valeur', 'armes'];
 
-const PLAFOND_AFFICHES = 900;   // au-dela ca rame et c'est illisible
 // Les etiquettes se chevauchent vite dans les zones denses : on ne les affiche
-// en masse qu'a partir de 4 px par case. Les categories rares (315 marqueurs en
+// en masse qu'a partir de 4 px par case. Les categories rares (338 marqueurs en
 // tout) restent nommees bien plus tot, c'est le cas ou on veut lire le nom.
 const ZOOM_ETIQUETTES = 2;
 const ZOOM_ETIQUETTES_RARES = -1;
 const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 
 // Priorite de dessin. L'ordre de CATEGORIES va du plus rare au plus courant :
-// 'top' (1 marqueur), 'or' (158), 'billets' (156)... 'labo' (87). On s'en sert
+// 'top' (1 marqueur), 'or' (181), 'billets' (156)... 'labo' (87). On s'en sert
 // comme z-index.
 //
 // Necessaire parce que 141 positions portent DEUX marqueurs exactement aux
@@ -75,6 +74,16 @@ let conteneur = null;
 const elements = new Map();     // index de marqueur -> element DOM
 let auClic = () => {};
 
+// Piece -> objets qui peuvent y apparaitre, produit par
+// outils/marqueurs/extraire-loot.py depuis les tables de loot du jeu.
+// 117 Ko, charge en parallele des marqueurs. L'infobulle s'en passe s'il
+// manque : elle affiche juste le nom et les coordonnees, comme avant.
+let loots = null;
+// Le nom de piece est le premier champ de la description : "gunstore · 10x5 ·
+// vanilla". Les marqueurs ecrits a la main ne suivent pas ce format et n'ont
+// donc pas de liste, c'est voulu, leur description dit deja quoi y trouver.
+const NOM_PIECE = /^([A-Za-z0-9_]+) · \d+x\d+ · /;
+
 export function initMarqueurs(element, rappelClic) {
   conteneur = element;
   auClic = rappelClic || (() => {});
@@ -89,6 +98,11 @@ export async function chargerMarqueurs(url = 'markers.json') {
   for (const m of etat.tous) {
     etat.compteurs[m.cat] = (etat.compteurs[m.cat] || 0) + 1;
   }
+
+  fetch('carte/loot-pieces.json')
+    .then(r => (r.ok ? r.json() : null))
+    .then(d => { loots = d; })
+    .catch(() => { loots = null; });
 
   const sauvegarde = lireFiltres();
   for (const c of CATEGORIES) {
@@ -131,11 +145,84 @@ export function empriseActifs() {
   return x1 < x0 ? null : { x0, y0, x1, y1 };
 }
 
+// Infobulle. Une seule bulle pour toute la carte, posee sur le body en
+// position fixe : l'attribut title natif met une seconde a sortir et ne sait
+// pas mettre un tableau en forme, ce qui va mal avec quinze lignes d'objets.
+let bulle = null;
+
+function bulleElement() {
+  if (!bulle) {
+    bulle = document.createElement('div');
+    bulle.className = 'mq-bulle';
+    document.body.appendChild(bulle);
+  }
+  return bulle;
+}
+
+function cacherBulle() {
+  if (bulle) bulle.classList.remove('visible');
+}
+
+/** Contenu de l'infobulle : le lieu, puis ce qui peut y apparaitre. */
+function remplirBulle(m, el) {
+  const b = bulleElement();
+  b.textContent = '';
+
+  const titre = document.createElement('strong');
+  titre.textContent = m.t;
+  b.appendChild(titre);
+
+  const sous = document.createElement('div');
+  sous.className = 'mq-bulle-sous';
+  sous.textContent = `${m.d || ''}${m.d ? ' · ' : ''}x=${m.x} y=${m.y} z=${m.z}`;
+  b.appendChild(sous);
+
+  const piece = NOM_PIECE.exec(m.d || '');
+  const liste = piece && loots ? loots[piece[1]] : null;
+  if (liste && liste.length) {
+    const entete = document.createElement('div');
+    entete.className = 'mq-bulle-entete';
+    // Un contenu garanti, comme la palette de lingots, n'a pas de tirage :
+    // afficher "100 %" a cote donnerait a croire qu'il y en a un.
+    const garanti = liste.length === 1 && liste[0][1] >= 100;
+    entete.textContent = garanti ? 'contient' : 'peut contenir, par tirage de meuble';
+    b.appendChild(entete);
+
+    const table = document.createElement('table');
+    for (const [nom, chance] of liste) {
+      const tr = document.createElement('tr');
+      const tdc = document.createElement('td');
+      tdc.className = 'mq-bulle-chance';
+      tdc.textContent = garanti ? '' : chance + ' %';
+      const tdn = document.createElement('td');
+      tdn.textContent = nom;
+      tr.appendChild(tdc);
+      tr.appendChild(tdn);
+      table.appendChild(tr);
+    }
+    b.appendChild(table);
+  }
+
+  // Place a cote de la pastille, rabattue dans la fenetre si ca deborde.
+  b.classList.add('visible');
+  const r = el.getBoundingClientRect();
+  const t = b.getBoundingClientRect();
+  let x = r.right + 10;
+  let y = r.top;
+  if (x + t.width > innerWidth - 8) x = Math.max(8, r.left - t.width - 10);
+  if (y + t.height > innerHeight - 8) y = Math.max(8, innerHeight - t.height - 8);
+  b.style.left = Math.round(x) + 'px';
+  b.style.top = Math.round(y) + 'px';
+}
+
 function creerElement(index, m) {
   const el = document.createElement('div');
   el.className = 'mq mq-' + m.cat;
   el.dataset.index = index;
-  el.title = `${m.t}\n${m.d || ''}\nx=${m.x}  y=${m.y}  z=${m.z}`;
+  // Remplie au survol et pas ici : la table de loot arrive apres les
+  // marqueurs, et construire 3486 bulles d'avance ne sert a rien.
+  el.addEventListener('mouseenter', () => remplirBulle(m, el));
+  el.addEventListener('mouseleave', cacherBulle);
   // Plus la categorie est rare, plus elle passe devant.
   el.style.zIndex = PRIORITE.get(m.cat) || 0;
   const pastille = document.createElement('i');
@@ -167,20 +254,16 @@ export function dessinerMarqueurs() {
     candidats.push(i);
   }
 
-  // Trop de monde a l'ecran : on garde les plus proches du centre.
-  if (candidats.length > PLAFOND_AFFICHES) {
-    const c = centreMonde();
-    candidats.sort((a, b) => {
-      const ma = etat.tous[a], mb = etat.tous[b];
-      return (ma.x - c.x) ** 2 + (ma.y - c.y) ** 2
-           - (mb.x - c.x) ** 2 - (mb.y - c.y) ** 2;
-    });
-    candidats = candidats.slice(0, PLAFOND_AFFICHES);
-  }
-
   const gardes = new Set(candidats);
   for (const [index, el] of elements) {
-    if (!gardes.has(index)) { el.remove(); elements.delete(index); }
+    if (!gardes.has(index)) {
+      // Retirer l'element ne declenche pas mouseleave : la bulle resterait
+      // affichee dans le vide apres un deplacement de la carte.
+      if (bulle && bulle.classList.contains('visible')
+          && el.matches(':hover')) cacherBulle();
+      el.remove();
+      elements.delete(index);
+    }
   }
 
   // Regroupement des marqueurs qui partagent exactement la meme case. Le

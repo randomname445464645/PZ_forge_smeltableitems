@@ -329,3 +329,39 @@ select { width: 100%; }
   position: absolute; z-index: 99; left: 20px; top: 20px;
   background: #3a1d1d; border: 1px solid #a33; padding: 12px; border-radius: 4px;
 }
+
+/* Infobulle des pastilles. Remplace l'attribut title natif, trop lent a
+   sortir et incapable de mettre en colonnes les quinze objets d'une piece. */
+.mq-bulle {
+  position: fixed;
+  z-index: 60;
+  display: none;
+  max-width: 340px;
+  padding: 8px 10px;
+  border: 1px solid #4a4a52;
+  border-radius: 6px;
+  background: rgba(20, 20, 24, .96);
+  color: #e8e8ea;
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;   /* ne doit jamais voler le survol a la pastille */
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .5);
+}
+.mq-bulle.visible { display: block; }
+.mq-bulle strong { font-size: 13px; }
+.mq-bulle-sous { color: #9a9aa2; font-size: 11px; margin-top: 1px; }
+.mq-bulle-entete {
+  margin: 7px 0 3px;
+  color: #9a9aa2;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.mq-bulle table { border-collapse: collapse; }
+.mq-bulle td { padding: 0 0 0 6px; white-space: nowrap; }
+.mq-bulle .mq-bulle-chance {
+  padding-left: 0;
+  text-align: right;
+  color: #d8a24a;
+  font-variant-numeric: tabular-nums;
+}

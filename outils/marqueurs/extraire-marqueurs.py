@@ -189,7 +189,14 @@ def extraire(chemin, libelle):
                 marqueurs.append(dict(base, cat=rare[0], t=titre))
 
         # Palettes de lingots : objet de decor, pas une piece.
-        if SPRITE_PALETTE_PLEINE in noms_tuiles:
+        #
+        # On saute les cellules sans aucune piece. Le jeu en a une, 58_1 dans
+        # la vanilla, qui etale des jeux de tuiles entiers en lignes pour les
+        # regarder : 26 sprites knox a la suite en y=444, un tous les deux x,
+        # dont une palette pleine en x=15005. Ce n'est pas un lieu. Les onze
+        # autres cellules a palettes ont entre 123 et 3372 pieces, la
+        # separation est nette.
+        if SPRITE_PALETTE_PLEINE in noms_tuiles and (h.get('rooms') or []):
             marqueurs.extend(palettes(chemin, cx, cy, libelle))
 
     return marqueurs, cellules
@@ -199,7 +206,7 @@ def palettes(chemin, cx, cy, libelle):
     """Positions des palettes de lingots pleines d'une cellule.
 
     On ne charge le .lotpack que si le .lotheader annonce le sprite : c'est le
-    cas de 11 cellules sur 4278, le reste du scan ne paye rien.
+    cas de 10 cellules sur 4278, le reste du scan ne paye rien.
     """
     from pzmap2dzi import cell
     try:
