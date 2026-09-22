@@ -49,10 +49,16 @@ export const PYRAMIDES = [
   { nom: 'Maplewood_B42',   libelle: 'Maplewood',                  mod: true },
   { nom: 'LQZ_B42',         libelle: 'Louisville Quarantine Zone', mod: true },
   { nom: 'Chestown_B42',    libelle: 'Chestown',                   mod: true },
+  // Calque des constructions, pre-calcule en tuiles par
+  // outils/agent-monde/rendre-calque.py. Ce n'est pas une carte mais une
+  // couche transparente posee par-dessus, et elle n'existe qu'en isometrique :
+  // sa geometrie est celle de la pyramide iso de base.
+  { nom: 'constructions',   libelle: 'Mes constructions',          mod: false, calque: true },
 ];
 
 /** Racine des tuiles d'une pyramide, pour un mode donne. */
 function racine(p, m) {
+  if (p.calque) return 'map_data/constructions';
   const job = (m === 'iso') ? 'base' : 'base_top';
   return p.mod ? `map_data/mod_maps/${p.nom}/${job}` : `map_data/${job}`;
 }
@@ -123,8 +129,12 @@ export async function chargerGeometrie(nouveauMode = mode) {
 
   await Promise.all(PYRAMIDES.map(async p => {
     p.absente = true;
+    // Le calque est dessine dans le repere isometrique : il n'a pas
+    // d'equivalent en vue de dessus.
+    if (p.calque && !iso) return;
     const r = racine(p, mode);
     try {
+      if (p.calque) { await chargerCalque(p, r); retenues.push(p); return; }
       const [info, dzi] = await Promise.all([
         fetch(`${r}/map_info.json`).then(x => { if (!x.ok) throw new Error(x.status); return x.json(); }),
         fetch(`${r}/layer0.dzi`).then(x => { if (!x.ok) throw new Error(x.status); return x.text(); }).then(lireDzi),
@@ -172,6 +182,40 @@ export async function chargerGeometrie(nouveauMode = mode) {
   EMPRISE.x1 = Math.max(...retenues.map(p => p.planX1));
   EMPRISE.y1 = Math.max(...retenues.map(p => p.planY1));
   return retenues;
+}
+
+/**
+ * Charge la pyramide du calque, decrite par son propre info.json.
+ *
+ * Elle reprend la geometrie de la pyramide iso de base, donc ses indices de
+ * tuiles coincident exactement. Seule difference : la liste des tuiles
+ * reellement produites, le calque ne couvrant que la zone exploree.
+ */
+async function chargerCalque(p, r) {
+  const info = await fetch(`${r}/info.json`).then(x => {
+    if (!x.ok) throw new Error(x.status);
+    return x.json();
+  });
+  p.racine = r;
+  p.sqr = info.sqr;
+  p.w = info.w;
+  p.h = info.h;
+  p.tailleTuile = info.tuile;
+  p.format = info.format || 'webp';
+  p.cellules = [];
+  p.cellSize = CASES_PAR_CELLULE;
+  p.pixelsParPlan = 1;                 // iso uniquement
+  p.niveauMax = info.niveau_max;
+  p.niveau1a1 = p.niveauMax;
+  p.planX = -info.x0; p.planY = -info.y0;
+  p.planX1 = p.planX + p.w; p.planY1 = p.planY + p.h;
+  // Tuiles existantes, par niveau : evite des milliers de requetes en 404.
+  p.tuiles = new Map();
+  for (const [niv, liste] of Object.entries(info.tuiles || {})) {
+    p.tuiles.set(parseInt(niv, 10), new Set(liste.map(([a, b]) => a + ',' + b)));
+  }
+  p.cases = info.cases || 0;
+  p.absente = false;
 }
 
 /** Un mode est-il disponible ? Teste la seule pyramide vanilla, la moins chere. */
@@ -244,6 +288,11 @@ export function urlTuile(pyramide, niveau, tx, ty) {
  * moteur masque celles qui repondent 404.
  */
 export function tuileExiste(pyramide, niveau, tx, ty) {
+  // Le calque connait exactement ses tuiles : pas de cellules a consulter.
+  if (pyramide.tuiles) {
+    const s = pyramide.tuiles.get(niveau);
+    return s ? s.has(tx + ',' + ty) : false;
+  }
   if (!pyramide.cellules.length) return true;
   const span = pyramide.tailleTuile * facteurNiveau(pyramide, niveau); // unites de plan
   const px0 = pyramide.planX + tx * span, px1 = px0 + span;

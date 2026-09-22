@@ -10,16 +10,13 @@
 // regle que constructions.js.
 
 import { vue, echelle, ecranVersPlanX, ecranVersPlanY } from './vue.js';
-import { pyramidesActives, facteurNiveau, tailleNiveau, urlTuile, tuileExiste,
-         mode, planVersMondeX, planVersMondeY } from './geometrie.js';
-import { donneesCalque, chargerSprites, actif as calqueActif } from './constructions.js';
+import { pyramidesActives, facteurNiveau, tailleNiveau, urlTuile, tuileExiste }
+  from './geometrie.js';
 
 // Limites d'un canvas. Chrome refuse au-dela de 16384 px de cote, et la
 // memoire s'effondre bien avant sur la surface totale.
 const COTE_MAX = 16384;
 const SURFACE_MAX = 40e6;        // 40 megapixels
-
-const GRID_W = 64, GRID_H = 32, LAYER_H = 192;
 
 /** Charge une image, ou null si elle manque. Jamais d'exception. */
 function charger(url) {
@@ -74,7 +71,7 @@ export async function exporterVue(progres = () => {}) {
   c.fillRect(0, 0, largeur, hauteur);
 
   // --- tuiles --------------------------------------------------------------
-  const pyramides = pyramidesActives();
+  const pyramides = pyramidesActives().filter(p => !p.masque);
   for (let ip = 0; ip < pyramides.length; ip++) {
     const p = pyramides[ip];
     progres(`tuiles ${ip + 1}/${pyramides.length}`);
@@ -125,46 +122,9 @@ export async function exporterVue(progres = () => {}) {
     }
   }
 
-  // --- calque des constructions -------------------------------------------
-  // Le calque suit la case a cocher : un export doit montrer ce qu'on voit.
-  const calque = calqueActif ? donneesCalque() : null;
-  if (mode === 'iso' && calque && calque.cases.length) {
-    progres('constructions');
-    const xs = [], ys = [];
-    for (const [a, b] of [[px0, py0], [px1, py0], [px0, py1], [px1, py1]]) {
-      xs.push(planVersMondeX(a, b)); ys.push(planVersMondeY(a, b));
-    }
-    const x0 = Math.min(...xs) - 4, x1 = Math.max(...xs) + 4;
-    const y0 = Math.min(...ys) - 4, y1 = Math.max(...ys) + 4;
-
-    // Les sprites doivent etre charges AVANT de dessiner : a l'ecran un
-    // manquant revient a l'image suivante, dans un export il manquerait
-    // definitivement.
-    const besoins = new Set();
-    for (const cas of calque.cases) {
-      if (cas[0] < x0 || cas[0] > x1 || cas[1] < y0 || cas[1] > y1) continue;
-      for (const rang of cas[3]) besoins.add(calque.noms[rang]);
-    }
-    progres(`constructions — ${besoins.size} sprites`);
-    await chargerSprites([...besoins]);
-
-    for (const cas of calque.cases) {
-      const x = cas[0], y = cas[1];
-      if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      const bcx = (x - y) * GRID_W;
-      const bcy = (x + y + 2) * GRID_H - LAYER_H * cas[2];
-      for (const rang of cas[3]) {
-        const nom = calque.noms[rang];
-        const meta = calque.metas[nom];
-        if (!meta) continue;
-        const img = calque.image(nom);
-        if (!img) continue;
-        c.drawImage(img,
-          (bcx + meta[3] - px0) * f, (bcy + meta[4] - py0) * f,
-          meta[1] * f, meta[2] * f);
-      }
-    }
-  }
+  // Le calque des constructions n'a plus de traitement particulier : c'est
+  // une pyramide de tuiles comme les autres, deja dessinee par la boucle
+  // ci-dessus, et qui suit sa case a cocher via p.masque.
 
   progres('encodage');
   const blob = await new Promise(r => toile.toBlob(r, 'image/png'));

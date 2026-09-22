@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 8880
@@ -33,46 +34,63 @@ SANS_CACHE = ('.html', '.js', '.css', '.json', '.dzi', '.webmanifest')
 # Le convertisseur a besoin de Pillow, donc du python de l'environnement
 # virtuel du projet, pas de celui du systeme.
 PROJET = os.path.normpath(os.path.join(RACINE, '..', '..'))
-CONVERTISSEUR = os.path.join(PROJET, 'outils', 'agent-monde', 'convertir.py')
+OUTILS = os.path.join(PROJET, 'outils', 'agent-monde')
+ETAPES = [
+    ('releve', os.path.join(OUTILS, 'convertir.py')),
+    ('tuiles', os.path.join(OUTILS, 'rendre-calque.py')),
+]
 PYTHON_VENV = os.path.join(PROJET, '.venv', 'bin', 'python')
-DELAI_SYNC = 300          # secondes ; 120 000 cases se convertissent en ~20 s
 
-# Une seule synchronisation a la fois : deux convertisseurs ecrivant le meme
-# fichier produiraient un JSON tronque.
+# La synchronisation dure une quinzaine de minutes : le calcul des tuiles est
+# long. Elle tourne donc en TACHE DE FOND et la page interroge son etat. Une
+# requete HTTP ouverte pendant un quart d'heure serait coupee par le
+# navigateur bien avant la fin.
 _verrou_sync = threading.Lock()
+_etat_sync = {'en_cours': False, 'etape': '', 'ligne': '', 'fini': False,
+              'ok': None, 'erreur': None, 'depuis': 0}
 
 
-def synchroniser():
-    """Relance le convertisseur. Retourne (code HTTP, dict de reponse)."""
-    if not os.path.isfile(CONVERTISSEUR):
-        return 500, {'ok': False, 'erreur': 'convertisseur introuvable : %s' % CONVERTISSEUR}
+def _executer_sync():
     python = PYTHON_VENV if os.path.isfile(PYTHON_VENV) else sys.executable
-
-    if not _verrou_sync.acquire(blocking=False):
-        return 409, {'ok': False, 'erreur': 'une synchronisation est deja en cours'}
     try:
-        r = subprocess.run([python, CONVERTISSEUR],
-                           capture_output=True, text=True, timeout=DELAI_SYNC)
-    except subprocess.TimeoutExpired:
-        return 504, {'ok': False, 'erreur': 'delai depasse (%d s)' % DELAI_SYNC}
+        for nom, script in ETAPES:
+            if not os.path.isfile(script):
+                _etat_sync.update(ok=False, erreur='script introuvable : %s' % script)
+                return
+            _etat_sync.update(etape=nom, ligne='')
+            p = subprocess.Popen([python, script], stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, text=True, bufsize=1)
+            derniere = ''
+            for ligne in p.stdout:
+                ligne = ligne.strip()
+                if ligne and 'RuntimeWarning' not in ligne and 'sys.prefix' not in ligne:
+                    derniere = ligne
+                    _etat_sync['ligne'] = ligne
+            p.wait()
+            if p.returncode != 0:
+                _etat_sync.update(ok=False, erreur='%s : %s' % (nom, derniere or 'echec'))
+                return
+        _etat_sync.update(ok=True, erreur=None)
     except Exception as e:
-        return 500, {'ok': False, 'erreur': str(e)}
+        _etat_sync.update(ok=False, erreur=str(e))
     finally:
+        _etat_sync.update(en_cours=False, fini=True)
         _verrou_sync.release()
 
-    sortie = (r.stdout or '').strip()
-    if r.returncode != 0:
-        # Le convertisseur explique lui-meme ce qui manque (releve absent...).
-        detail = (r.stderr or sortie or 'code %d' % r.returncode).strip()
-        return 500, {'ok': False, 'erreur': detail.splitlines()[0] if detail else 'echec'}
 
-    # On renvoie le resume du convertisseur, que la page affiche tel quel.
-    infos = {}
-    for ligne in sortie.splitlines():
-        if ':' in ligne:
-            cle, _, val = ligne.partition(':')
-            infos[cle.strip()] = val.strip()
-    return 200, {'ok': True, 'resume': sortie, 'infos': infos}
+def demarrer_sync():
+    if not _verrou_sync.acquire(blocking=False):
+        return 409, {'ok': False, 'erreur': 'une synchronisation est deja en cours'}
+    _etat_sync.update(en_cours=True, etape='', ligne='', fini=False,
+                      ok=None, erreur=None, depuis=time.time())
+    threading.Thread(target=_executer_sync, daemon=True).start()
+    return 202, {'ok': True, 'demarre': True}
+
+
+def etat_sync():
+    e = dict(_etat_sync)
+    e['secondes'] = int(time.time() - e['depuis']) if e['depuis'] else 0
+    return 200, e
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -93,6 +111,24 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-cache, must-revalidate')
         super().end_headers()
 
+    def do_GET(self):
+        if self.path.split('?', 1)[0] == '/api/sync':
+            if self.headers.get('X-Carte') != 'sync':
+                self.send_error(403, 'en-tete X-Carte manquant')
+                return
+            self.repondre_json(*etat_sync())
+            return
+        super().do_GET()
+
+    def repondre_json(self, code, reponse):
+        corps = json.dumps(reponse).encode('utf-8')
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(corps)))
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(corps)
+
     def do_POST(self):
         chemin = self.path.split('?', 1)[0]
         if chemin != '/api/sync':
@@ -106,14 +142,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(403, 'en-tete X-Carte manquant')
             return
 
-        code, reponse = synchroniser()
-        corps = json.dumps(reponse).encode('utf-8')
-        self.send_response(code)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', str(len(corps)))
-        self.send_header('Cache-Control', 'no-store')
-        self.end_headers()
-        self.wfile.write(corps)
+        self.repondre_json(*demarrer_sync())
 
     def log_message(self, fmt, *args):
         # On ne veut voir que les erreurs, pas les 5000 tuiles servies.

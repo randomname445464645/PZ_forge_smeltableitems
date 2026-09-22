@@ -208,12 +208,13 @@ export function dessinerTuiles() {
   // pas sature et que dpr est une puissance de deux. Calcule une fois sur la
   // pyramide de base : toutes partagent le meme sqr, donc le meme comportement,
   // et cette valeur reste juste meme si la vanilla n'est pas a l'ecran.
-  const reference = actives[0];
+  const reference = actives.find(p => !p.calque) || actives[0];
   const facteurRendu = reference
     ? facteurNiveau(reference, niveauPour(reference, vue.zoom, boost)) * e * dpr
     : 1;
 
   for (const p of actives) {
+    if (p.masque) continue;             // calque decoche
     const niveau = niveauPour(p, vue.zoom, boost);
     const f = facteurNiveau(p, niveau);          // unites de plan par px d'image
     const taille = tailleNiveau(p, niveau);
@@ -254,7 +255,9 @@ export function dessinerTuiles() {
           img.className = 'tuile';        // glisser-deposer natif et le pan
           img.alt = '';                   // se bloque
           img.decoding = 'async';
-          img.style.zIndex = p.mod ? 2 : 1;
+          // Le calque des constructions passe devant les cartes, qui passent
+          // elles-memes devant la vanilla.
+          img.style.zIndex = p.calque ? 3 : (p.mod ? 2 : 1);
           img.src = urlTuile(p, niveau, tx, ty);
           img.addEventListener('error', () => { img.style.visibility = 'hidden'; });
           tuiles.set(cle, img);

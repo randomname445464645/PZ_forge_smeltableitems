@@ -56,7 +56,6 @@ function demanderRendu(majListeAussi = false) {
 
 function rendre() {
   dessinerTuiles();
-  dessinerConstructions();
   dessinerRues();
   dessinerMarqueurs();
   majHud();
@@ -422,27 +421,54 @@ function initSync() {
     const etat = $('etatSync');
     bouton.disabled = true;
     etat.className = 'reel';
-    etat.textContent = 'en cours...';
+    etat.textContent = 'demarrage...';
     try {
       // L'en-tete X-Carte est ce qui autorise la requete cote serveur : une
       // page d'une autre origine ne peut pas le poser sans requete
       // preliminaire, a laquelle le serveur ne repond pas.
-      const r = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'X-Carte': 'sync' },
-      });
+      const r = await fetch('/api/sync', { method: 'POST', headers: { 'X-Carte': 'sync' } });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) {
         etat.className = 'reel erreur';
         etat.textContent = d.erreur || `erreur ${r.status}`;
+        bouton.disabled = false;
         return;
       }
-      const recharge = await rechargerConstructions();
-      if (!recharge) {
+      // La synchronisation dure une quinzaine de minutes, le calcul des
+      // tuiles etant long : on interroge son etat au lieu de garder une
+      // requete ouverte, qu'aucun navigateur ne tolererait.
+      await suivreSync(etat);
+    } catch (e) {
+      etat.className = 'reel erreur';
+      etat.textContent = 'serveur injoignable';
+    } finally {
+      bouton.disabled = false;
+    }
+  });
+}
+
+/** Interroge l'etat de la synchronisation jusqu'a son terme. */
+async function suivreSync(etat) {
+  const LIBELLE = { releve: 'lecture du releve', tuiles: 'calcul des tuiles' };
+  for (;;) {
+    await new Promise(r => setTimeout(r, 2000));
+    let d;
+    try {
+      d = await (await fetch('/api/sync', { headers: { 'X-Carte': 'sync' } })).json();
+    } catch (e) {
+      etat.className = 'reel erreur';
+      etat.textContent = 'serveur injoignable';
+      return;
+    }
+    if (d.fini) {
+      if (!d.ok) {
         etat.className = 'reel erreur';
-        etat.textContent = 'releve illisible';
+        etat.textContent = d.erreur || 'echec';
         return;
       }
+      etat.className = 'reel';
+      etat.textContent = 'rechargement...';
+      await rechargerConstructions();
       if (constructionsDisponibles()) {
         $('labelConstructions').hidden = false;
         $('nbConstructions').textContent = nbConstructions() + ' cases';
@@ -451,18 +477,15 @@ function initSync() {
           basculerConstructions(true);
         }
       }
-      etat.className = 'reel ok';
-      etat.textContent = (d.infos && d.infos['cases uniques'])
-        ? d.infos['cases uniques'] + ' cases'
-        : 'a jour';
+      viderTuiles();
       demanderRendu(true);
-    } catch (e) {
-      etat.className = 'reel erreur';
-      etat.textContent = 'serveur injoignable';
-    } finally {
-      bouton.disabled = false;
+      etat.className = 'reel ok';
+      etat.textContent = `${nbConstructions()} cases`;
+      return;
     }
-  });
+    const min = Math.floor(d.secondes / 60), s = d.secondes % 60;
+    etat.textContent = `${LIBELLE[d.etape] || d.etape || 'en cours'} · ${min}:${String(s).padStart(2, '0')}`;
+  }
 }
 
 // --- bascule entre vue de dessus et isometrique ----------------------------
@@ -552,7 +575,7 @@ function restaurerVue() {
 async function demarrer() {
   initTuiles(plan);
   initRues($('rues'));
-  initConstructions($('constructions'));
+  initConstructions();
   initMarqueurs($('marqueurs'), i => selectionner(i, false));
   mesurer();
 
@@ -589,7 +612,6 @@ async function demarrer() {
     $('labelConstructions').hidden = false;
     // Les sprites arrivent de facon asynchrone : il faut redessiner a chaque
     // image chargee, sinon le calque reste incomplet jusqu'au prochain geste.
-    constructionsSurChargement(() => demanderRendu());
     initSync();
     $('nbConstructions').textContent = nbConstructions() + ' cases';
     let coche = true;

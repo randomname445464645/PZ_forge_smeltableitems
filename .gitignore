@@ -11,6 +11,11 @@
 # regle en "base/" ne matcherait pas.
 out/html/map_data/base
 out/html/map_data/mod_maps/*/base
+
+# Pyramide du calque des constructions : environ 2 Go, regeneree par
+# outils/agent-monde/rendre-calque.py a partir du releve, qui est lui-meme
+# propre a chaque joueur.
+out/html/map_data/constructions
 out/html/map_data/rooms
 out/html/map_data/objects
 out/html/map_data/streets
