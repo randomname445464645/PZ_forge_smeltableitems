@@ -36,8 +36,8 @@ SORTIE = os.path.join(HTML, 'map_data', 'constructions')
 
 GW, GH, LH = 64, 32, 192          # GRID_WIDTH, GRID_HEIGHT, LAYER_HEIGHT
 
-# Debordement maximal d'un sprite autour du bas-centre de sa case. Les plus
-# hauts (arbres jumbo) montent a 1024 px ; on borne large pour ne rien couper.
+# Repli si une case n'a aucun sprite connu : debordement maximal plausible
+# autour du bas-centre (les arbres jumbo montent a plus de 1000 px).
 MARGE_G, MARGE_D, MARGE_H, MARGE_B = 512, 512, 1088, 128
 
 _ctx = {}
@@ -139,16 +139,48 @@ def main():
     print('cases          : %d' % len(cases))
     print('geometrie      : %d x %d, tuiles de %d, niveau max %d' % (W, H, TUILE, NIVEAU_MAX))
 
+    # Boite exacte de chaque sprite autour du bas-centre, pre-calculee une fois.
+    # Une marge fixe serait a la fois trop large pour la plupart des sprites et
+    # potentiellement trop courte pour les plus hauts.
+    boites = {}
+    for nom, m in metas.items():
+        _, w, h, ox, oy = m
+        boites[nom] = (ox, oy, ox + w, oy + h)
+
     # Index tuile -> cases, au niveau de pleine resolution.
+    #
+    # On parcourt TOUTE la plage de tuiles couverte par la boite, pas seulement
+    # ses quatre coins : une boite plus haute qu'une tuile en couvre trois, et
+    # n'indexer que les coins laissait celle du milieu sans contenu. Cela
+    # produisait des bandes vides le long des diagonales de la grille iso, sur
+    # 19 % des cases.
     t0 = time.time()
     index = {}
+    sans_sprite = 0
     for i, c in enumerate(cases):
         bx = (c[0] - c[1]) * GW + px0
         by = (c[0] + c[1] + 2) * GH - LH * c[2] + py0
-        for ax in (bx - MARGE_G, bx + MARGE_D):
-            for ay in (by - MARGE_H, by + MARGE_B):
-                index.setdefault((ax // TUILE, ay // TUILE), []).append(i)
-    print('index          : %d tuiles occupees, %.1f s' % (len(index), time.time() - t0))
+        g = h_ = 10**9
+        d = b = -10**9
+        for r in c[3]:
+            bo = boites.get(noms[r])
+            if not bo:
+                continue
+            g = min(g, bo[0]); h_ = min(h_, bo[1])
+            d = max(d, bo[2]); b = max(b, bo[3])
+        if d < g:
+            sans_sprite += 1
+            g, h_, d, b = -MARGE_G, -MARGE_H, MARGE_D, MARGE_B
+        tx0 = (bx + g) // TUILE
+        tx1 = (bx + d) // TUILE
+        ty0 = (by + h_) // TUILE
+        ty1 = (by + b) // TUILE
+        for tx in range(tx0, tx1 + 1):
+            for ty in range(ty0, ty1 + 1):
+                index.setdefault((tx, ty), []).append(i)
+    print('index          : %d tuiles occupees, %.1f s%s'
+          % (len(index), time.time() - t0,
+             '' if not sans_sprite else ' (%d cases sans sprite connu)' % sans_sprite))
 
     travaux = [(tx, ty, idx) for (tx, ty), idx in sorted(index.items())]
     n = len(travaux)
