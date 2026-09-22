@@ -80,6 +80,7 @@ def main():
         return 1
 
     cases = {}
+    construites = set()
     lignes = illisibles = 0
     with open(source, encoding="utf-8") as f:
         for ligne in f:
@@ -89,7 +90,15 @@ def main():
             lignes += 1
             try:
                 d = json.loads(ligne)
-                cases[(d["x"], d["y"], d["z"])] = d["s"]
+                cle = (d["x"], d["y"], d["z"])
+                cases[cle] = d["s"]
+                # Le drapeau "c" marque une case contenant une construction.
+                # Avec tout=1 toutes les cases sortent, c'est le seul moyen de
+                # les distinguer. On ne le retire jamais : une case vue
+                # construite le reste, meme si un relevé ulterieur la montre
+                # rasee, auquel cas le contenu suffit a le voir.
+                if d.get("c"):
+                    construites.add(cle)
             except Exception:
                 illisibles += 1     # ligne tronquee par un arret brutal du jeu
 
@@ -98,9 +107,17 @@ def main():
     noms = sorted({s for sprites in cases.values() for s in sprites})
     rang = {n: i for i, n in enumerate(noms)}
 
+    # Tri dans l'ordre du peintre : etage croissant, puis profondeur
+    # isometrique croissante. Le navigateur n'a plus qu'a suivre le tableau,
+    # ce qui evite un tri de plusieurs centaines de milliers d'entrees a
+    # chaque image.
     plat = []
-    for (x, y, z) in sorted(cases, key=lambda c: (c[2], c[0] + c[1], c[0])):
-        plat.append([x, y, z, [rang[s] for s in cases[(x, y, z)]]])
+    for cle in sorted(cases, key=lambda c: (c[2], c[0] + c[1], c[0])):
+        x, y, z = cle
+        entree = [x, y, z, [rang[s] for s in cases[cle]]]
+        if cle in construites:
+            entree.append(1)
+        plat.append(entree)
 
     index, manquants, dossiers = index_textures(noms, TEXTURES)
 
@@ -118,6 +135,7 @@ def main():
     if illisibles:
         print("lignes illisibles : %d (ignorees)" % illisibles)
     print("cases uniques     : %d" % len(cases))
+    print("dont construites  : %d" % len(construites))
     print("sprites distincts : %d" % len(noms))
     print("etages            : %s" % ", ".join(str(z) for z in sorted({c[2] for c in cases})))
     if xs:

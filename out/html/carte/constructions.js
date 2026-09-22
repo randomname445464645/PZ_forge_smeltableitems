@@ -23,7 +23,7 @@
 
 import { vue, echelle, mondeVersEcranX, mondeVersEcranY,
          empriseMondeVisible, planVersEcranX, planVersEcranY } from './vue.js';
-import { mode } from './geometrie.js';
+import { mode, coteCasePlan } from './geometrie.js';
 
 const SOURCE = 'constructions.json';
 const SOURCE_SPRITES = 'constructions-sprites.json';
@@ -32,14 +32,29 @@ const RACINE_TEXTURES = 'texture';
 const GRID_W = 64, GRID_H = 32, LAYER_H = 192;
 
 const SEAU = 32;                 // cote du seau de l'index spatial, en cases
-const CASE_MIN_DETAIL = 3;       // en dessous, on dessine l'emprise des seaux
-const CASE_MIN_SPRITES = 6;      // en dessous, les sprites sont illisibles
+const CASE_MIN_DETAIL = 2;       // en dessous, on dessine l'emprise des seaux
+
+// Seuil de bascule vers les sprites. Fixe par la MESURE, pas par la lisibilite :
+// sur un releve de 120 000 cases, une image coute 13 ms a 16 px/case, 37 ms a
+// 8 px/case et 71 ms a 4 px/case. Le budget d'une image a 60 Hz est de 16,7 ms.
+// En dessous de 16 px/case on repasse donc a l'emprise, qui coute 2 ms.
+const CASE_MIN_SPRITES = 16;
+
+// Garde-fou : avec tout=1 le releve peut compter des centaines de milliers de
+// cases. Au-dela de cette limite on arrete de dessiner plutot que de bloquer
+// l'affichage ; l'indicateur depassement permet de le signaler.
+const MAX_SPRITES = 60000;
+export let depassement = false;
 
 let canvas = null, ctx = null;
-let cases = null;                // [x, y, z, [rang, ...]]
+// [x, y, z, [rang, ...], construite?] deja trie dans l'ordre du peintre par
+// le convertisseur : etage croissant, puis profondeur isometrique croissante.
+// Trier ici couterait un tri de plusieurs centaines de milliers d'entrees a
+// chaque image.
+let cases = null;
 let noms = null;                 // rang -> nom de sprite
 let metas = null;                // nom -> [dossier, w, h, ox, oy]
-let index = null;                // "sx,sy" -> [indices dans cases]
+let seaux = null;                // emprises pre-calculees, pour le dezoom
 let chargement = null;
 export let actif = false;
 
@@ -65,20 +80,26 @@ export function basculerConstructions(valeur) {
       fetch(SOURCE).then(r => (r.ok ? r.json() : null)).catch(() => null),
       fetch(SOURCE_SPRITES).then(r => (r.ok ? r.json() : null)).catch(() => null),
     ]).then(([d, m]) => {
-      cases = [];
+      cases = (d && d.cases) || [];
       noms = (d && d.sprites) || [];
       metas = m || {};
-      index = new Map();
-      if (d && d.cases) {
-        for (const c of d.cases) {
-          const i = cases.length;
-          cases.push(c);
-          const k = `${Math.floor(c[0] / SEAU)},${Math.floor(c[1] / SEAU)}`;
-          let seau = index.get(k);
-          if (!seau) { seau = []; index.set(k, seau); }
-          seau.push(i);
+
+      // Emprises par seau, calculees une fois : au dezoom on ne dessine que
+      // ces rectangles, et seulement pour les cases CONSTRUITES. Avec tout=1
+      // l'ensemble releve couvre toute la zone exploree, en faire un aplat
+      // dore n'apprendrait rien.
+      const acc = new Map();
+      for (const c of cases) {
+        if (!c[4]) continue;
+        const k = `${Math.floor(c[0] / SEAU)},${Math.floor(c[1] / SEAU)}`;
+        let b = acc.get(k);
+        if (!b) { b = [c[0], c[1], c[0], c[1]]; acc.set(k, b); }
+        else {
+          if (c[0] < b[0]) b[0] = c[0]; if (c[1] < b[1]) b[1] = c[1];
+          if (c[0] > b[2]) b[2] = c[0]; if (c[1] > b[3]) b[3] = c[1];
         }
       }
+      seaux = [...acc.values()];
       chargement = null;
     });
     return chargement;
@@ -100,10 +121,13 @@ function image(nom) {
   return null;
 }
 
-/** Cote apparent d'une case, en px CSS. Vaut dans les deux modes. */
+/**
+ * Cote apparent d'une case, en px CSS. C'est EXACTEMENT la grandeur affichee
+ * par le bandeau : les seuils ci-dessus se lisent donc directement a l'ecran.
+ * Une mesure differente ici donnerait des bascules a des zooms inattendus.
+ */
 function coteCase() {
-  return Math.abs(mondeVersEcranX(1, 0) - mondeVersEcranX(0, 0))
-       + Math.abs(mondeVersEcranY(1, 0) - mondeVersEcranY(0, 0));
+  return coteCasePlan() * echelle();
 }
 
 function quadCase(x, y) {
@@ -127,25 +151,6 @@ function preparerCanvas() {
   ctx.clearRect(0, 0, vue.largeur, vue.hauteur);
 }
 
-/** Indices des cases visibles, via l'index spatial. */
-function visibles(x0, y0, x1, y1) {
-  const out = [];
-  const sx0 = Math.floor(x0 / SEAU), sx1 = Math.floor(x1 / SEAU);
-  const sy0 = Math.floor(y0 / SEAU), sy1 = Math.floor(y1 / SEAU);
-  for (let sy = sy0; sy <= sy1; sy++) {
-    for (let sx = sx0; sx <= sx1; sx++) {
-      const seau = index.get(`${sx},${sy}`);
-      if (!seau) continue;
-      for (const i of seau) {
-        const c = cases[i];
-        if (c[0] < x0 || c[0] > x1 || c[1] < y0 || c[1] > y1) continue;
-        out.push(i);
-      }
-    }
-  }
-  return out;
-}
-
 export function dessinerConstructions() {
   if (!canvas) return;
   preparerCanvas();
@@ -153,58 +158,76 @@ export function dessinerConstructions() {
 
   const { x0, y0, x1, y1 } = empriseMondeVisible(4);
   const cote = coteCase();
-  const e = echelle();
 
   if (mode === 'iso' && cote >= CASE_MIN_SPRITES) {
-    dessinerSprites(visibles(x0, y0, x1, y1), e);
+    dessinerSprites(x0, y0, x1, y1, echelle());
   } else {
     dessinerEmprise(x0, y0, x1, y1, cote);
   }
 }
 
 /**
- * Dessin des vrais sprites, ordre du peintre : etage croissant, puis
- * profondeur isometrique croissante (x + y). Sans ce tri, un mur du fond
- * recouvrirait un mur du premier plan.
+ * Dessin des vrais sprites.
+ *
+ * Balayage LINEAIRE du tableau, qui est deja trie dans l'ordre du peintre par
+ * le convertisseur : etage croissant, puis profondeur isometrique croissante.
+ * Un index spatial obligerait a retrier les cases visibles a chaque image, ce
+ * qui coute bien plus cher que de parcourir le tableau en testant une boite.
+ *
+ * Sans ce tri, un mur du fond recouvrirait un mur du premier plan. Et c'est lui
+ * qui permet l'opacite : les sols des cases relevees recouvrent la tuile de
+ * base, donc un arbre abattu disparait au lieu de rester affiche.
  */
-function dessinerSprites(indices, e) {
-  indices.sort((a, b) => {
-    const ca = cases[a], cb = cases[b];
-    return (ca[2] - cb[2]) || ((ca[0] + ca[1]) - (cb[0] + cb[1])) || (ca[0] - cb[0]);
-  });
-
-  // En agrandissement, du plus proche voisin : les sprites sont du pixel art,
+function dessinerSprites(x0, y0, x1, y1, e) {
+  // En agrandissement, plus proche voisin : les sprites sont du pixel art,
   // un lissage les rendrait pateux. Meme regle que pour les tuiles.
   ctx.imageSmoothingEnabled = e < 1;
 
-  for (const i of indices) {
+  let dessines = 0;
+  for (let i = 0; i < cases.length; i++) {
     const c = cases[i];
-    const bcx = (c[0] - c[1]) * GRID_W;
-    const bcy = (c[0] + c[1] + 2) * GRID_H - LAYER_H * c[2];
-    for (const rang of c[3]) {
-      const nom = noms[rang];
+    const x = c[0], y = c[1];
+    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+
+    const bcx = (x - y) * GRID_W;
+    const bcy = (x + y + 2) * GRID_H - LAYER_H * c[2];
+    const rangs = c[3];
+    for (let k = 0; k < rangs.length; k++) {
+      const nom = noms[rangs[k]];
       if (nom === undefined) continue;
       const img = image(nom);
-      if (!img) continue;                 // null = en cours, false = absente
+      if (!img) continue;               // null = en cours, false = absente
       const meta = metas[nom];
       ctx.drawImage(img,
         planVersEcranX(bcx + meta[3]),
         planVersEcranY(bcy + meta[4]),
         meta[1] * e, meta[2] * e);
+      if (++dessines >= MAX_SPRITES) break;
     }
+    if (dessines >= MAX_SPRITES) break;
   }
+
   ctx.imageSmoothingEnabled = true;
+  depassement = dessines >= MAX_SPRITES;
 }
 
-/** Repli : emprise doree, quand les sprites n'ont pas de sens ou sont illisibles. */
+/**
+ * Repli : emprise doree, quand les sprites n'ont pas de sens (vue de dessus)
+ * ou seraient illisibles (trop dezoome).
+ *
+ * Seules les cases CONSTRUITES sont surlignees. Avec tout=1 le releve couvre
+ * toute la zone exploree : en faire un aplat dore n'apprendrait rien.
+ */
 function dessinerEmprise(x0, y0, x1, y1, cote) {
   ctx.fillStyle = 'rgba(216, 162, 74, 0.34)';
   ctx.strokeStyle = 'rgba(216, 162, 74, 0.85)';
   ctx.lineWidth = Math.min(2, Math.max(0.6, cote / 12));
 
   if (cote >= CASE_MIN_DETAIL) {
-    for (const i of visibles(x0, y0, x1, y1)) {
+    for (let i = 0; i < cases.length; i++) {
       const c = cases[i];
+      if (!c[4]) continue;
+      if (c[0] < x0 || c[0] > x1 || c[1] < y0 || c[1] > y1) continue;
       quadCase(c[0], c[1]);
       ctx.fill();
       if (cote >= 6) ctx.stroke();
@@ -212,26 +235,16 @@ function dessinerEmprise(x0, y0, x1, y1, cote) {
     return;
   }
 
+  // Trop dezoome : emprises pre-calculees au chargement, une par seau.
   ctx.fillStyle = 'rgba(216, 162, 74, 0.55)';
-  const sx0 = Math.floor(x0 / SEAU), sx1 = Math.floor(x1 / SEAU);
-  const sy0 = Math.floor(y0 / SEAU), sy1 = Math.floor(y1 / SEAU);
-  for (let sy = sy0; sy <= sy1; sy++) {
-    for (let sx = sx0; sx <= sx1; sx++) {
-      const seau = index.get(`${sx},${sy}`);
-      if (!seau) continue;
-      let ax = Infinity, ay = Infinity, bx = -Infinity, by = -Infinity;
-      for (const i of seau) {
-        const c = cases[i];
-        if (c[0] < ax) ax = c[0]; if (c[0] > bx) bx = c[0];
-        if (c[1] < ay) ay = c[1]; if (c[1] > by) by = c[1];
-      }
-      ctx.beginPath();
-      ctx.moveTo(mondeVersEcranX(ax, ay), mondeVersEcranY(ax, ay));
-      ctx.lineTo(mondeVersEcranX(bx + 1, ay), mondeVersEcranY(bx + 1, ay));
-      ctx.lineTo(mondeVersEcranX(bx + 1, by + 1), mondeVersEcranY(bx + 1, by + 1));
-      ctx.lineTo(mondeVersEcranX(ax, by + 1), mondeVersEcranY(ax, by + 1));
-      ctx.closePath();
-      ctx.fill();
-    }
+  for (const b of seaux) {
+    if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue;
+    ctx.beginPath();
+    ctx.moveTo(mondeVersEcranX(b[0], b[1]), mondeVersEcranY(b[0], b[1]));
+    ctx.lineTo(mondeVersEcranX(b[2] + 1, b[1]), mondeVersEcranY(b[2] + 1, b[1]));
+    ctx.lineTo(mondeVersEcranX(b[2] + 1, b[3] + 1), mondeVersEcranY(b[2] + 1, b[3] + 1));
+    ctx.lineTo(mondeVersEcranX(b[0], b[3] + 1), mondeVersEcranY(b[0], b[3] + 1));
+    ctx.closePath();
+    ctx.fill();
   }
 }

@@ -177,7 +177,12 @@ public final class Agent {
                         ligne.append('"').append(echapper(nom)).append('"');
                         nb++;
                     }
-                    ligne.append("]}");
+                    ligne.append(']');
+                    // Marque les cases contenant une construction. Avec tout=1
+                    // toutes les cases sortent, ce drapeau est alors le seul
+                    // moyen de les distinguer cote viewer.
+                    if (aConstruction) ligne.append(",\"c\":1");
+                    ligne.append('}');
 
                     if (nb == 0) continue;
                     if (!tout && !aConstruction) continue;

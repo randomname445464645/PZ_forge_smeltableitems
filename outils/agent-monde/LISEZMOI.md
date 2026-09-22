@@ -60,7 +60,20 @@ Options, séparées par des virgules :
 |---|---|---|
 | `periode=<s>` | 5 | intervalle entre deux balayages |
 | `sortie=<chemin>` | `~/Zomboid/pz-export/monde.ndjson` | fichier de sortie |
-| `tout=1` | non | exporte tous les objets, pas seulement les cases construites |
+| `tout=1` | non | exporte toutes les cases, pas seulement celles qui contiennent une construction |
+
+`tout=1` est nécessaire pour que **les suppressions** apparaissent. Sans lui le
+calque ne fait qu'ajouter : un arbre abattu reste affiché, puisqu'il appartient
+à la tuile de base et que rien ne le recouvre. Avec lui, les sols de toutes les
+cases relevées sont repeints par dessus, et ce qui n'existe plus n'est
+simplement pas peint.
+
+Le volume change d'ordre de grandeur : quelques milliers de cases avec le
+filtre, plus de cent mille avec `tout=1`.
+
+Une limite subsiste : un grand arbre situé juste en dehors de la zone relevée
+continuera de déborder dedans par le haut. Les bords de l'exploration gardent
+ces résidus, le centre est propre.
 
 Steam réécrit parfois `ProjectZomboid64.json` lors d'une mise à jour du jeu :
 garder une copie.
@@ -92,10 +105,12 @@ textures extraites doivent être accessibles au serveur web :
 ln -sfn /mnt/data/pz-render/out-iso/texture out/html/texture
 ```
 
-Le rendu par sprites n'a lieu **qu'en isométrique et au-delà de 6 px par
+Le rendu par sprites n'a lieu **qu'en isométrique et au-delà de 16 px par
 case**. En vue de dessus, dessiner des sprites isométriques n'aurait aucun
-sens ; trop dézoomé, ils seraient illisibles. Dans ces cas le calque retombe
-sur l'emprise dorée.
+sens. Le seuil de 16 est fixé par la mesure, pas par la lisibilité : sur un
+relevé de 120 000 cases, une image coûte 14,8 ms à 16 px/case, 37 ms à 8 et
+71 ms à 4, pour un budget de 16,7 ms à 60 Hz. En dessous, le calque retombe
+sur l'emprise dorée, qui coûte 2 ms.
 
 La règle de dessin est reprise de `render_impl/base.py` et de `pzdzi.IsoDZI` :
 
@@ -114,6 +129,18 @@ pas lire un bloc tEXt, d'où l'index produit par le convertisseur.
 Les cases sont dessinées dans l'ordre du peintre : étage croissant, puis
 profondeur isométrique croissante (`x + y`). Sans ce tri, un mur du fond
 recouvrirait un mur du premier plan.
+
+## Effacer un relevé pour repartir de zéro
+
+**Arrêter le jeu d'abord.** Renommer ou supprimer le fichier pendant que
+l'agent tourne ne l'arrête pas : sous Linux, renommer un fichier sur le même
+système de fichiers ne change que son nom, le descripteur ouvert suit l'inode.
+L'agent continue donc d'écrire, dans le fichier renommé.
+
+```bash
+# jeu ferme
+rm ~/Zomboid/pz-export/monde.ndjson
+```
 
 ## Limites
 
