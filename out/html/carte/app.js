@@ -18,7 +18,8 @@ import * as loot from './loot.js';
 import { initConstructions, basculerConstructions, dessinerConstructions,
          disponible as constructionsDisponibles,
          nombreCases as nbConstructions,
-         surChargement as constructionsSurChargement } from './constructions.js';
+         surChargement as constructionsSurChargement,
+         rechargerConstructions } from './constructions.js';
 
 const $ = id => document.getElementById(id);
 
@@ -377,6 +378,61 @@ function initLoot() {
   setInterval(() => { majBandeauLoot(); demanderRendu(true); }, periode);
 }
 
+// --- synchronisation du releve de l'agent ----------------------------------
+
+function initSync() {
+  const bouton = $('sync' + 'Constructions');
+  if (!bouton || bouton.dataset.pret) return;
+  bouton.dataset.pret = '1';
+  $('ligneSync').hidden = false;
+
+  bouton.addEventListener('click', async () => {
+    const etat = $('etatSync');
+    bouton.disabled = true;
+    etat.className = 'reel';
+    etat.textContent = 'en cours...';
+    try {
+      // L'en-tete X-Carte est ce qui autorise la requete cote serveur : une
+      // page d'une autre origine ne peut pas le poser sans requete
+      // preliminaire, a laquelle le serveur ne repond pas.
+      const r = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'X-Carte': 'sync' },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) {
+        etat.className = 'reel erreur';
+        etat.textContent = d.erreur || `erreur ${r.status}`;
+        return;
+      }
+      const recharge = await rechargerConstructions();
+      if (!recharge) {
+        etat.className = 'reel erreur';
+        etat.textContent = 'releve illisible';
+        return;
+      }
+      if (constructionsDisponibles()) {
+        $('labelConstructions').hidden = false;
+        $('nbConstructions').textContent = nbConstructions() + ' cases';
+        if (!$('calqueConstructions').checked) {
+          $('calqueConstructions').checked = true;
+          basculerConstructions(true);
+        }
+      }
+      etat.className = 'reel ok';
+      etat.textContent = (d.infos && d.infos['cases uniques'])
+        ? d.infos['cases uniques'] + ' cases'
+        : 'a jour';
+      demanderRendu(true);
+    } catch (e) {
+      etat.className = 'reel erreur';
+      etat.textContent = 'serveur injoignable';
+    } finally {
+      bouton.disabled = false;
+    }
+  });
+}
+
 // --- bascule entre vue de dessus et isometrique ----------------------------
 
 let basculeEnCours = false;
@@ -501,6 +557,7 @@ async function demarrer() {
     // Les sprites arrivent de facon asynchrone : il faut redessiner a chaque
     // image chargee, sinon le calque reste incomplet jusqu'au prochain geste.
     constructionsSurChargement(() => demanderRendu());
+    initSync();
     $('nbConstructions').textContent = nbConstructions() + ' cases';
     let coche = true;
     try { coche = localStorage.getItem('pzcarte.constructions') !== '0'; } catch (e) {}
@@ -513,6 +570,10 @@ async function demarrer() {
     });
   } else {
     basculerConstructions(false);
+    // Le bouton reste offert : c'est souvent la premiere synchronisation qui
+    // fait apparaitre le calque.
+    $('ligneSync').hidden = false;
+    initSync();
   }
 
   try {

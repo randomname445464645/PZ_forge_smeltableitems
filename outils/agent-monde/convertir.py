@@ -27,7 +27,7 @@ import os
 import sys
 
 RACINE = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.expanduser("~/Zomboid/pz-export/monde.ndjson")
+SOURCE = os.path.expanduser("~/Zomboid/pz-export")
 SORTIE = os.path.abspath(os.path.join(RACINE, "..", "..", "out", "html"))
 TEXTURES = "/mnt/data/pz-render/out-iso/texture"
 
@@ -70,19 +70,38 @@ def index_textures(noms, racine):
     return index, manquants, dossiers
 
 
+def fichiers_source(source):
+    """Liste les relevés a lire, du plus ancien au plus recent.
+
+    Accepte un fichier ou un dossier. Sur un dossier, tous les .ndjson sont
+    lus, dans l'ordre des dates : le plus recent gagne en cas de doublon. Cela
+    couvre les relevés renommés ou accumulés sur plusieurs sessions, et evite
+    d'imposer un nom de fichier unique.
+    """
+    if os.path.isfile(source):
+        return [source]
+    if os.path.isdir(source):
+        fs = [os.path.join(source, n) for n in os.listdir(source)
+              if n.endswith(".ndjson")]
+        return sorted(fs, key=os.path.getmtime)
+    return []
+
+
 def main():
     source = sys.argv[1] if len(sys.argv) > 1 else SOURCE
     sortie = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else SORTIE)
 
-    if not os.path.isfile(source):
-        print("Source introuvable : %s" % source, file=sys.stderr)
+    sources = fichiers_source(source)
+    if not sources:
+        print("Aucun releve trouve dans : %s" % source, file=sys.stderr)
         print("L'agent a-t-il tourne ? Voir LISEZMOI.md", file=sys.stderr)
         return 1
 
     cases = {}
     construites = set()
     lignes = illisibles = 0
-    with open(source, encoding="utf-8") as f:
+    for chemin in sources:
+      with open(chemin, encoding="utf-8") as f:
         for ligne in f:
             ligne = ligne.strip()
             if not ligne:
@@ -131,6 +150,7 @@ def main():
     ys = [c[1] for c in cases]
     t1 = os.path.getsize(os.path.join(sortie, "constructions.json")) / 1024
     t2 = os.path.getsize(os.path.join(sortie, "constructions-sprites.json")) / 1024
+    print("fichiers lus      : %d" % len(sources))
     print("lignes lues       : %d" % lignes)
     if illisibles:
         print("lignes illisibles : %d (ignorees)" % illisibles)

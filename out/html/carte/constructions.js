@@ -64,6 +64,26 @@ export let actif = false;
 const images = new Map();
 let aRedessiner = null;
 
+/**
+ * Emprises par seau, pour le dezoom. Seules les cases CONSTRUITES comptent :
+ * avec tout=1 le releve couvre toute la zone exploree, en faire un aplat dore
+ * n'apprendrait rien.
+ */
+function construireSeaux() {
+  const acc = new Map();
+  for (const c of cases) {
+    if (!c[4]) continue;
+    const k = `${Math.floor(c[0] / SEAU)},${Math.floor(c[1] / SEAU)}`;
+    let b = acc.get(k);
+    if (!b) { b = [c[0], c[1], c[0], c[1]]; acc.set(k, b); }
+    else {
+      if (c[0] < b[0]) b[0] = c[0]; if (c[1] < b[1]) b[1] = c[1];
+      if (c[0] > b[2]) b[2] = c[0]; if (c[1] > b[3]) b[3] = c[1];
+    }
+  }
+  seaux = [...acc.values()];
+}
+
 export function initConstructions(element) {
   canvas = element;
   ctx = canvas.getContext('2d');
@@ -84,27 +104,36 @@ export function basculerConstructions(valeur) {
       noms = (d && d.sprites) || [];
       metas = m || {};
 
-      // Emprises par seau, calculees une fois : au dezoom on ne dessine que
-      // ces rectangles, et seulement pour les cases CONSTRUITES. Avec tout=1
-      // l'ensemble releve couvre toute la zone exploree, en faire un aplat
-      // dore n'apprendrait rien.
-      const acc = new Map();
-      for (const c of cases) {
-        if (!c[4]) continue;
-        const k = `${Math.floor(c[0] / SEAU)},${Math.floor(c[1] / SEAU)}`;
-        let b = acc.get(k);
-        if (!b) { b = [c[0], c[1], c[0], c[1]]; acc.set(k, b); }
-        else {
-          if (c[0] < b[0]) b[0] = c[0]; if (c[1] < b[1]) b[1] = c[1];
-          if (c[0] > b[2]) b[2] = c[0]; if (c[1] > b[3]) b[3] = c[1];
-        }
-      }
-      seaux = [...acc.values()];
+      construireSeaux();
       chargement = null;
     });
     return chargement;
   }
   return Promise.resolve();
+}
+
+/**
+ * Recharge le releve depuis le disque, apres une synchronisation.
+ *
+ * Le jeton ?t= force le contournement du cache : les deux fichiers viennent
+ * d'etre reecrits a la meme URL. Le cache d'images n'est PAS vide, un sprite
+ * garde le meme contenu d'un relevé a l'autre ; seuls les sprites devenus
+ * connus sont ajoutes.
+ */
+export async function rechargerConstructions() {
+  const t = Date.now();
+  const [d, m] = await Promise.all([
+    fetch(`${SOURCE}?t=${t}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
+    fetch(`${SOURCE_SPRITES}?t=${t}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
+  ]);
+  if (!d) return false;
+  cases = d.cases || [];
+  noms = d.sprites || [];
+  metas = m || {};
+  construireSeaux();
+  // Un sprite marque absent faute de metadonnees peut desormais exister.
+  for (const [nom, v] of [...images]) if (v === false) images.delete(nom);
+  return true;
 }
 
 /** Image d'un sprite, chargee a la demande. null = en cours, false = absente. */

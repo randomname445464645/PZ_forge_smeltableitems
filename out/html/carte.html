@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#14161a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="pwa/icone-192.png">
-<link rel="stylesheet" href="carte/style.css?v=8">
+<link rel="stylesheet" href="carte/style.css?v=9">
 </head>
 <body>
 
@@ -47,6 +47,10 @@
       <input type="checkbox" id="calqueConstructions"> mes constructions
       <i class="nb" id="nbConstructions"></i>
     </label>
+    <div class="ligne-sync" id="ligneSync" hidden>
+      <button id="syncConstructions" title="Relire le releve de l'agent et rafraichir le calque">synchroniser</button>
+      <span class="reel" id="etatSync"></span>
+    </div>
   </div>
 
   <div class="bloc" id="blocLoot">
@@ -76,6 +80,6 @@
   <div id="liste"></div>
 </div>
 
-<script type="module" src="carte/app.js?v=17"></script>
+<script type="module" src="carte/app.js?v=18"></script>
 </body>
 </html>

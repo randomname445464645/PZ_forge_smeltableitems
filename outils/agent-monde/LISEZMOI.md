@@ -87,7 +87,14 @@ Jouer. L'agent écrit une ligne NDJSON par case nouvelle ou modifiée, et affich
 python3 outils/agent-monde/convertir.py
 ```
 
-qui produit deux fichiers dans `out/html/` :
+ou, plus simplement, le bouton **synchroniser** du panneau de la carte, qui
+fait la même chose sans terminal.
+
+Le convertisseur lit **tous les `.ndjson`** du dossier d'export, du plus ancien
+au plus récent, et déduplique. Peu importe donc comment les relevés sont
+nommés ou répartis entre sessions.
+
+Il produit deux fichiers dans `out/html/` :
 
 | Fichier | Contenu |
 |---|---|
@@ -141,6 +148,27 @@ L'agent continue donc d'écrire, dans le fichier renommé.
 # jeu ferme
 rm ~/Zomboid/pz-export/monde.ndjson
 ```
+
+## Le bouton synchroniser
+
+`serveur.py` expose `POST /api/sync`, qui relance le convertisseur et renvoie
+son résumé en JSON. C'est la seule entorse au caractère statique de la carte :
+le serveur n'exécute rien d'autre, ne lit aucune donnée de jeu, et n'accepte
+aucun paramètre. La commande est fixe.
+
+Trois protections :
+
+- le serveur n'écoute que sur `127.0.0.1`, rien n'est joignable depuis le
+  réseau local ;
+- la requête doit porter l'en-tête `X-Carte: sync`. Une page d'une autre
+  origine ne peut pas le poser sans requête préliminaire, à laquelle le serveur
+  ne répond pas : un site tiers ne peut donc pas déclencher la synchronisation
+  à ton insu ;
+- un verrou interdit deux conversions simultanées, qui écriraient le même
+  fichier et produiraient un JSON tronqué. La seconde reçoit un `409`.
+
+Le convertisseur a besoin de Pillow, donc du python du `.venv` du projet. Le
+serveur le cherche là en priorité et retombe sur le python courant sinon.
 
 ## Limites
 
