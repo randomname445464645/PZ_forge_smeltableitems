@@ -24,9 +24,51 @@ Regle de dessin, reprise de render_impl/base.py et de pzdzi.IsoDZI :
 """
 import json
 import os
+import re
 import sys
 
 RACINE = os.path.dirname(os.path.abspath(__file__))
+
+# --- feuillage saisonnier ----------------------------------------------------
+# pzmap2dzi ne dessine pas un arbre tel quel : il empile le tronc nu puis une
+# couche de feuillage choisie par plants_conf.season (voir plants.py,
+# fonction get_tree). La carte de base est rendue en "summer2", donc en ete
+# permanent.
+#
+# L'agent, lui, releve les sprites que le jeu utilise vraiment : si le serveur
+# est en hiver, il n'y a pas de couche de feuillage et l'arbre est nu. Le
+# calque et la carte ne se ressemblent alors pas du tout.
+#
+# On reproduit donc ici la substitution de get_tree : pour chaque tronc nu
+# d'une essence caduque, on ajoute la couche de feuillage de la saison voulue.
+# Les persistants n'en ont pas.
+#
+# plants.py, _TREE_DEF : nom, numero de tileset, persistant, type de vent.
+PERSISTANTS = {"americanholly", "canadianhemlock", "virginiapine"}
+
+# plants.py, get_tree : textures.append(prefix + str(idx + step * N))
+DECALAGE_SAISON = {"spring": 2, "summer": 3, "summer2": 4, "autumn": 5}
+
+MOTIF_ARBRE = re.compile(r"^e_([a-z]+)(JUMBO[A-Z]*)?_1_(\d+)$")
+
+
+def feuillage(nom, saison):
+    """Sprite de feuillage a ajouter derriere un tronc nu, ou None."""
+    if saison not in DECALAGE_SAISON:
+        return None
+    m = MOTIF_ARBRE.match(nom)
+    if not m:
+        return None
+    essence, jumbo, idx = m.group(1), m.group(2), int(m.group(3))
+    if essence in PERSISTANTS:
+        return None
+    # step = 2 pour les jumbo, 4 sinon (plants.py). Au-dela de step, le sprite
+    # est deja une variante saisonniere ou enneigee, on n'y touche pas.
+    step = 2 if jumbo else 4
+    if idx >= step:
+        return None
+    return "e_%s%s_1_%d" % (essence, jumbo or "", idx + step * DECALAGE_SAISON[saison])
+
 SOURCE = os.path.expanduser("~/Zomboid/pz-export")
 SORTIE = os.path.abspath(os.path.join(RACINE, "..", "..", "out", "html"))
 TEXTURES = "/mnt/data/pz-render/out-iso/texture"
@@ -88,8 +130,13 @@ def fichiers_source(source):
 
 
 def main():
-    source = sys.argv[1] if len(sys.argv) > 1 else SOURCE
-    sortie = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else SORTIE)
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    saison = "summer2"
+    for a in sys.argv[1:]:
+        if a.startswith("--saison="):
+            saison = a.split("=", 1)[1]
+    source = args[0] if len(args) > 0 else SOURCE
+    sortie = os.path.abspath(args[1] if len(args) > 1 else SORTIE)
 
     sources = fichiers_source(source)
     if not sources:
@@ -120,6 +167,20 @@ def main():
                     construites.add(cle)
             except Exception:
                 illisibles += 1     # ligne tronquee par un arret brutal du jeu
+
+    # Feuillage : on ajoute la couche saisonniere derriere chaque tronc nu,
+    # pour que le calque ait le meme aspect que la carte de base.
+    ajoutes = 0
+    if saison in DECALAGE_SAISON:
+        for cle, sprites in cases.items():
+            enrichi = []
+            for s in sprites:
+                enrichi.append(s)
+                f = feuillage(s, saison)
+                if f:
+                    enrichi.append(f)
+                    ajoutes += 1
+            cases[cle] = enrichi
 
     # Table des noms de sprites : ils se repetent enormement d'une case a
     # l'autre, les stocker une fois divise la taille par plusieurs.
@@ -157,6 +218,10 @@ def main():
     print("cases uniques     : %d" % len(cases))
     print("dont construites  : %d" % len(construites))
     print("sprites distincts : %d" % len(noms))
+    if saison in DECALAGE_SAISON:
+        print("feuillage ajoute  : %d couches (saison %s)" % (ajoutes, saison))
+    else:
+        print("feuillage         : desactive (saison %r)" % saison)
     print("etages            : %s" % ", ".join(str(z) for z in sorted({c[2] for c in cases})))
     if xs:
         print("emprise           : x %d a %d, y %d a %d" % (min(xs), max(xs), min(ys), max(ys)))

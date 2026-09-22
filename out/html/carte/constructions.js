@@ -22,8 +22,9 @@
 // sprite et viennent des metadonnees PNG, relayees par constructions-sprites.json.
 
 import { vue, echelle, mondeVersEcranX, mondeVersEcranY,
-         empriseMondeVisible, planVersEcranX, planVersEcranY } from './vue.js';
-import { mode, coteCasePlan } from './geometrie.js';
+         empriseMondeVisible, planVersEcranX, planVersEcranY,
+         ecranVersPlanX, ecranVersPlanY } from './vue.js';
+import { mode, coteCasePlan, planVersMondeX, planVersMondeY } from './geometrie.js';
 
 const SOURCE = 'constructions.json';
 const SOURCE_SPRITES = 'constructions-sprites.json';
@@ -34,17 +35,30 @@ const GRID_W = 64, GRID_H = 32, LAYER_H = 192;
 const SEAU = 32;                 // cote du seau de l'index spatial, en cases
 const CASE_MIN_DETAIL = 2;       // en dessous, on dessine l'emprise des seaux
 
-// Seuil de bascule vers les sprites. Fixe par la MESURE, pas par la lisibilite :
-// sur un releve de 120 000 cases, une image coute 13 ms a 16 px/case, 37 ms a
-// 8 px/case et 71 ms a 4 px/case. Le budget d'une image a 60 Hz est de 16,7 ms.
-// En dessous de 16 px/case on repasse donc a l'emprise, qui coute 2 ms.
-const CASE_MIN_SPRITES = 16;
+// Seuil de bascule vers les sprites. Le tampon hors ecran rend le deplacement
+// quasi gratuit quel que soit le zoom, le seuil n'est donc plus dicte par le
+// cout d'une image mais par la lisibilite : en dessous de 4 px par case un
+// sprite de mur fait deux pixels de large et n'apprend plus rien.
+const CASE_MIN_SPRITES = 4;
 
 // Garde-fou : avec tout=1 le releve peut compter des centaines de milliers de
 // cases. Au-dela de cette limite on arrete de dessiner plutot que de bloquer
 // l'affichage ; l'indicateur depassement permet de le signaler.
-const MAX_SPRITES = 60000;
+// Garde-fou contre un releve pathologique. Avec le remplissage progressif il
+// ne sert plus a lisser la charge, seulement a borner le total.
+const MAX_SPRITES = 2000000;
+
+// Budget de dessin par image, en millisecondes. Remplir le tampon d'un coup
+// coute 37 ms a 16 px par case, 359 ms a 8 et 618 ms a 4 : autant de gel. On
+// etale donc le remplissage sur plusieurs images, le calque apparait
+// progressivement et l'interface ne bloque jamais.
+const BUDGET_MS = 8;
 export let depassement = false;
+
+// Marge du tampon hors ecran, en px CSS. Le tampon couvre le viewport plus
+// cette marge de chaque cote : tant que le deplacement reste dedans, il n'y a
+// rien a redessiner, juste une image a recopier.
+const MARGE_TAMPON = 512;
 
 let canvas = null, ctx = null;
 // [x, y, z, [rang, ...], construite?] deja trie dans l'ordre du peintre par
@@ -57,6 +71,15 @@ let metas = null;                // nom -> [dossier, w, h, ox, oy]
 let seaux = null;                // emprises pre-calculees, pour le dezoom
 let chargement = null;
 export let actif = false;
+
+// Tampon hors ecran. Redessiner les sprites a chaque image coute 37 ms a
+// 8 px/case et 71 ms a 4, tres au-dela du budget de 16,7 ms. On les dessine
+// donc une fois dans un tampon plus grand que le viewport, et le deplacement
+// se reduit a une recopie d'image, soit moins d'une milliseconde.
+let tampon = null, tamponCtx = null;
+let tamponEtat = null;          // {zoom, mode, px0, py0, pw, ph, version, complet}
+let remplissage = null;         // avancement du remplissage progressif
+let version = 0;                // incremente a chaque rechargement du releve
 
 // Cache d'images. La valeur vaut null tant que le chargement est en cours,
 // false si l'image est definitivement absente : sans ce troisieme etat on
@@ -90,6 +113,45 @@ export function initConstructions(element) {
 }
 
 export function surChargement(rappel) { aRedessiner = rappel; }
+
+/**
+ * Acces aux donnees du calque, pour l'export HD.
+ * Expose la lecture seule : l'export dessine avec la meme regle, a une autre
+ * echelle et dans une autre toile.
+ */
+export function donneesCalque() {
+  if (!cases) return null;
+  return { cases, noms, metas, image };
+}
+
+/**
+ * Precharge les sprites demandes et attend qu'ils soient tous resolus.
+ *
+ * A l'ecran un sprite manquant apparait a l'image suivante, sans consequence.
+ * Dans un export, il manquerait definitivement : il faut donc attendre.
+ */
+export function chargerSprites(listeNoms, delaiMs = 20000) {
+  const attendus = [];
+  for (const nom of listeNoms) {
+    if (images.get(nom) === false) continue;      // absente, inutile d'attendre
+    if (images.get(nom)) continue;                // deja chargee
+    image(nom);                                   // declenche le chargement
+    attendus.push(nom);
+  }
+  if (!attendus.length) return Promise.resolve(0);
+  const fin = Date.now() + delaiMs;
+  return new Promise(resolve => {
+    const verifier = () => {
+      const restants = attendus.filter(n => images.get(n) === null);
+      if (!restants.length || Date.now() > fin) return resolve(attendus.length - restants.length);
+      setTimeout(verifier, 60);
+    };
+    verifier();
+  });
+}
+
+/** Diagnostic : le tampon est-il entierement dessine ? */
+export function tamponComplet() { return !!tamponEtat && tamponEtat.complet; }
 export function disponible() { return cases !== null && cases.length > 0; }
 export function nombreCases() { return cases ? cases.length : 0; }
 
@@ -131,6 +193,7 @@ export async function rechargerConstructions() {
   noms = d.sprites || [];
   metas = m || {};
   construireSeaux();
+  version++;                    // invalide le tampon
   // Un sprite marque absent faute de metadonnees peut desormais exister.
   for (const [nom, v] of [...images]) if (v === false) images.delete(nom);
   return true;
@@ -144,7 +207,11 @@ function image(nom) {
   images.set(nom, null);
   const img = new Image();
   img.decoding = 'async';
-  img.onload = () => { images.set(nom, img); if (aRedessiner) aRedessiner(); };
+  img.onload = () => {
+    images.set(nom, img);
+    tamponEtat = null;          // une image de plus : le tampon est perime
+    if (aRedessiner) aRedessiner();
+  };
   img.onerror = () => { images.set(nom, false); };
   img.src = `${RACINE_TEXTURES}/${meta[0]}/${encodeURIComponent(nom)}.png`;
   return null;
@@ -185,38 +252,110 @@ export function dessinerConstructions() {
   preparerCanvas();
   if (!actif || !cases || !cases.length) return;
 
-  const { x0, y0, x1, y1 } = empriseMondeVisible(4);
   const cote = coteCase();
-
   if (mode === 'iso' && cote >= CASE_MIN_SPRITES) {
-    dessinerSprites(x0, y0, x1, y1, echelle());
+    dessinerViaTampon();
   } else {
+    const { x0, y0, x1, y1 } = empriseMondeVisible(4);
     dessinerEmprise(x0, y0, x1, y1, cote);
   }
 }
 
 /**
- * Dessin des vrais sprites.
+ * Affiche les sprites via le tampon hors ecran.
  *
- * Balayage LINEAIRE du tableau, qui est deja trie dans l'ordre du peintre par
- * le convertisseur : etage croissant, puis profondeur isometrique croissante.
- * Un index spatial obligerait a retrier les cases visibles a chaque image, ce
- * qui coute bien plus cher que de parcourir le tableau en testant une boite.
- *
- * Sans ce tri, un mur du fond recouvrirait un mur du premier plan. Et c'est lui
- * qui permet l'opacite : les sols des cases relevees recouvrent la tuile de
- * base, donc un arbre abattu disparait au lieu de rester affiche.
+ * Le tampon couvre le viewport plus MARGE_TAMPON de chaque cote, en
+ * coordonnees de PLAN. Tant que le viewport reste dedans et que ni le zoom ni
+ * le releve ne changent, il n'y a qu'une recopie d'image a faire.
  */
-function dessinerSprites(x0, y0, x1, y1, e) {
-  // En agrandissement, plus proche voisin : les sprites sont du pixel art,
-  // un lissage les rendrait pateux. Meme regle que pour les tuiles.
-  ctx.imageSmoothingEnabled = e < 1;
+function dessinerViaTampon() {
+  const dpr = window.devicePixelRatio || 1;
+  const e = echelle();
 
-  let dessines = 0;
-  for (let i = 0; i < cases.length; i++) {
-    const c = cases[i];
+  // Rectangle voulu, en unites de plan.
+  const marge = MARGE_TAMPON / e;
+  const px0 = ecranVersPlanX(0) - marge;
+  const py0 = ecranVersPlanY(0) - marge;
+  const px1 = ecranVersPlanX(vue.largeur) + marge;
+  const py1 = ecranVersPlanY(vue.hauteur) + marge;
+
+  const perime = !tamponEtat
+    || tamponEtat.zoom !== vue.zoom
+    || tamponEtat.mode !== mode
+    || tamponEtat.version !== version
+    || tamponEtat.dpr !== dpr
+    || px0 < tamponEtat.px0 || py0 < tamponEtat.py0
+    || px1 > tamponEtat.px0 + tamponEtat.pw
+    || py1 > tamponEtat.py0 + tamponEtat.ph;
+
+  if (perime) demarrerRemplissage(px0, py0, px1 - px0, py1 - py0, e, dpr);
+  else if (tamponEtat && !tamponEtat.complet) continuerRemplissage();
+  if (!tamponEtat) return;
+
+  // Position du coin du tampon a l'ecran. Arrondi au pixel : un tampon pose a
+  // cheval sur deux pixels serait reechantillonne, donc flou.
+  const gx = Math.round(planVersEcranX(tamponEtat.px0));
+  const gy = Math.round(planVersEcranY(tamponEtat.py0));
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(tampon, 0, 0, tampon.width, tampon.height,
+                gx, gy, tamponEtat.pw * e, tamponEtat.ph * e);
+  ctx.imageSmoothingEnabled = true;
+}
+
+/** Prepare un tampon vide et amorce son remplissage progressif. */
+function demarrerRemplissage(px0, py0, pw, ph, e, dpr) {
+  const lp = Math.ceil(pw * e * dpr), hp = Math.ceil(ph * e * dpr);
+  // Une texture trop grande est refusee par le navigateur : on renonce au
+  // tampon plutot que d'afficher du vide.
+  if (lp <= 0 || hp <= 0 || lp > 16384 || hp > 16384) {
+    tamponEtat = null; remplissage = null; return;
+  }
+  if (!tampon) {
+    tampon = document.createElement('canvas');
+    tamponCtx = tampon.getContext('2d');
+  }
+  if (tampon.width !== lp || tampon.height !== hp) {
+    tampon.width = lp; tampon.height = hp;
+  }
+  tamponCtx.setTransform(1, 0, 0, 1, 0, 0);
+  tamponCtx.clearRect(0, 0, lp, hp);
+  tamponCtx.scale(dpr, dpr);
+  tamponCtx.imageSmoothingEnabled = e < 1;
+
+  // Bornes monde du rectangle, pour filtrer les cases. En iso le rectangle de
+  // plan devient un losange en coordonnees monde : on prend la boite de ses
+  // quatre coins, ce qui est conservateur.
+  const xs = [], ys = [];
+  for (const [a, b] of [[px0, py0], [px0 + pw, py0], [px0, py0 + ph], [px0 + pw, py0 + ph]]) {
+    xs.push(planVersMondeX(a, b)); ys.push(planVersMondeY(a, b));
+  }
+  remplissage = {
+    px0, py0, e,
+    x0: Math.min(...xs) - 4, x1: Math.max(...xs) + 4,
+    y0: Math.min(...ys) - 4, y1: Math.max(...ys) + 4,
+    i: 0, dessines: 0,
+  };
+  tamponEtat = { zoom: vue.zoom, mode, px0, py0, pw, ph, version, dpr, complet: false };
+  continuerRemplissage();
+}
+
+/**
+ * Dessine jusqu'a epuisement du budget de temps, puis rend la main.
+ *
+ * Le tampon partiel est affiche tel quel : le calque apparait par morceaux au
+ * lieu de figer l'interface. Tant qu'il reste du travail on redemande une
+ * image, ce qui relance ce meme code au rendu suivant.
+ */
+function continuerRemplissage() {
+  if (!remplissage || !tamponEtat) return;
+  const r = remplissage;
+  const e = r.e;
+  const fin = performance.now() + BUDGET_MS;
+
+  while (r.i < cases.length) {
+    const c = cases[r.i++];
     const x = c[0], y = c[1];
-    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+    if (x < r.x0 || x > r.x1 || y < r.y0 || y > r.y1) continue;
 
     const bcx = (x - y) * GRID_W;
     const bcy = (x + y + 2) * GRID_H - LAYER_H * c[2];
@@ -227,17 +366,25 @@ function dessinerSprites(x0, y0, x1, y1, e) {
       const img = image(nom);
       if (!img) continue;               // null = en cours, false = absente
       const meta = metas[nom];
-      ctx.drawImage(img,
-        planVersEcranX(bcx + meta[3]),
-        planVersEcranY(bcy + meta[4]),
+      tamponCtx.drawImage(img,
+        (bcx + meta[3] - r.px0) * e,
+        (bcy + meta[4] - r.py0) * e,
         meta[1] * e, meta[2] * e);
-      if (++dessines >= MAX_SPRITES) break;
+      r.dessines++;
     }
-    if (dessines >= MAX_SPRITES) break;
+    if (r.dessines >= MAX_SPRITES) break;
+    // Le test de temps est fait par case et non par sprite : une case coute
+    // quelques microsecondes, le depassement reste negligeable.
+    if (performance.now() >= fin) break;
   }
 
-  ctx.imageSmoothingEnabled = true;
-  depassement = dessines >= MAX_SPRITES;
+  if (r.i >= cases.length || r.dessines >= MAX_SPRITES) {
+    depassement = r.dessines >= MAX_SPRITES;
+    tamponEtat.complet = true;
+    remplissage = null;
+  } else if (aRedessiner) {
+    aRedessiner();                      // il reste du travail : une image de plus
+  }
 }
 
 /**

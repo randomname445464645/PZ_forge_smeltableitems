@@ -149,6 +149,50 @@ L'agent continue donc d'écrire, dans le fichier renommé.
 rm ~/Zomboid/pz-export/monde.ndjson
 ```
 
+## Feuillage : pourquoi les arbres etaient nus
+
+`plants.py` montre que pzmap2dzi ne dessine pas un arbre tel quel : il empile
+le tronc nu `e_<essence>_1_<i>` puis une couche de feuillage
+`e_<essence>_1_<i + 4 x step>` choisie par `plants_conf.season`. La carte de
+base est rendue en `summer2`, donc en ete permanent.
+
+L'agent releve les sprites que le jeu utilise **reellement**. Si le serveur est
+en hiver, il n'y a pas de couche de feuillage : les arbres du calque sont nus
+alors que ceux de la carte ont des feuilles.
+
+Le convertisseur reproduit donc la substitution de `get_tree` et ajoute la
+couche de feuillage. Par defaut `summer2`, comme la carte :
+
+```bash
+python3 convertir.py --saison=summer2     # defaut
+python3 convertir.py --saison=autumn
+python3 convertir.py --saison=aucune      # garde ce que le jeu affiche
+```
+
+Saisons acceptees : `spring`, `summer`, `summer2`, `autumn`. Les persistants
+(houx, pruche, pin de Virginie) n'ont pas de couche de feuillage et ne sont pas
+touches.
+
+## L'export HD
+
+Le bouton **exporter en HD** enregistre la vue courante en PNG, a la resolution
+native des tuiles et non a celle de l'ecran. Il ne s'agit pas d'un
+agrandissement : le module va chercher le niveau de pyramide correspondant, ce
+qui revele du detail que l'ecran ne montrait pas.
+
+Le facteur est toujours une puissance de deux, pour que les tuiles tombent sur
+des pixels entiers. Il est reduit de moitie tant que l'image depasse 16384 px
+de cote ou 40 megapixels, limites au-dela desquelles le navigateur refuse la
+toile.
+
+Le calque des constructions suit la case a cocher, et ses sprites sont
+**attendus** avant le dessin : a l'ecran un sprite manquant revient a l'image
+suivante, dans un export il manquerait definitivement.
+
+Ordres de grandeur mesures : une vue a 8 px par case donne 5472 x 6144, soit
+34 megapixels et 51 Mo de PNG ; a 16 px par case, 2736 x 3072 et 13 Mo. Le PNG
+est sans perte, ce qui convient a du pixel art mais pese.
+
 ## Le bouton synchroniser
 
 `serveur.py` expose `POST /api/sync`, qui relance le convertisseur et renvoie

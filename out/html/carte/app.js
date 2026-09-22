@@ -15,6 +15,7 @@ import {
 } from './marqueurs.js';
 import { initRues, basculerRues, dessinerRues } from './rues.js';
 import * as loot from './loot.js';
+import { exporterVue } from './exporter.js';
 import { initConstructions, basculerConstructions, dessinerConstructions,
          disponible as constructionsDisponibles,
          nombreCases as nbConstructions,
@@ -378,6 +379,37 @@ function initLoot() {
   setInterval(() => { majBandeauLoot(); demanderRendu(true); }, periode);
 }
 
+// --- export HD de la vue ---------------------------------------------------
+
+function initExport() {
+  const bouton = $('exportHD');
+  const etat = $('etatExport');
+  bouton.addEventListener('click', async () => {
+    bouton.disabled = true;
+    etat.className = 'reel';
+    etat.textContent = 'preparation...';
+    try {
+      const r = await exporterVue(e => { etat.textContent = e; });
+      const nom = `carte-pz-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')}.png`;
+      const url = URL.createObjectURL(r.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nom;
+      a.click();
+      // Liberer tout de suite ferait echouer le telechargement dans certains
+      // navigateurs : on laisse une seconde.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      etat.className = 'reel ok';
+      etat.textContent = `${r.largeur} x ${r.hauteur}`;
+    } catch (e) {
+      etat.className = 'reel erreur';
+      etat.textContent = e.message || 'echec';
+    } finally {
+      bouton.disabled = false;
+    }
+  });
+}
+
 // --- synchronisation du releve de l'agent ----------------------------------
 
 function initSync() {
@@ -546,6 +578,7 @@ async function demarrer() {
   }
 
   initLoot();
+  initExport();
   remplirVilles();
   construireFiltres();
   enregistrerFiltres();   // fige l'etat par defaut des la premiere ouverture
