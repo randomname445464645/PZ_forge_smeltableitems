@@ -115,6 +115,17 @@ LIBELLES_RARES = {
     'changeroomjockey':    'Vestiaire des jockeys',
 }
 
+# Palettes de lingots. Ce ne sont pas des conteneurs mais des objets de decor :
+# l'entite Base.GoldPallet (scripts/generated/entities/misc/entity_goldpallet.txt)
+# est accrochee au sprite location_military_knox_01_1, et son menu contextuel
+# appelle ContextMenuCode.TakeGoldBars, qui donne 30 Base.GoldBar puis remplace
+# le sprite par location_military_knox_01_0.
+#
+# Consequence : ca NE respawn PAS. Le repop de loot ne remplit que des
+# conteneurs. Une palette videe l'est pour de bon, donc le marqueur vaut une
+# fois. Les palettes deja vides d'origine (sprite _0) ne sont pas marquees.
+SPRITE_PALETTE_PLEINE = 'location_military_knox_01_1'
+
 FORMAT_EXTRAIT = re.compile(r'^[a-z0-9]+ · \d+x\d+ · ')
 
 
@@ -151,6 +162,7 @@ def extraire(chemin, libelle):
         if not h:
             continue
         cellules += 1
+        noms_tuiles = set(h.get('tiles') or [])
         for r in (h.get('rooms') or []):
             nom = r['name']
             if isinstance(nom, bytes):
@@ -176,7 +188,45 @@ def extraire(chemin, libelle):
                 titre = info[1] if info else LIBELLES_RARES[nom]
                 marqueurs.append(dict(base, cat=rare[0], t=titre))
 
+        # Palettes de lingots : objet de decor, pas une piece.
+        if SPRITE_PALETTE_PLEINE in noms_tuiles:
+            marqueurs.extend(palettes(chemin, cx, cy, libelle))
+
     return marqueurs, cellules
+
+
+def palettes(chemin, cx, cy, libelle):
+    """Positions des palettes de lingots pleines d'une cellule.
+
+    On ne charge le .lotpack que si le .lotheader annonce le sprite : c'est le
+    cas de 11 cellules sur 4278, le reste du scan ne paye rien.
+    """
+    from pzmap2dzi import cell
+    try:
+        c = cell.load_cell(chemin, cx, cy)
+    except Exception:
+        return []
+    if not c:
+        return []
+    trouves = []
+    for sx in range(c.cell_size):
+        for sy in range(c.cell_size):
+            for z in range(c.minlayer, c.maxlayer):
+                carre = c.get_square(sx, sy, z)
+                if not carre:
+                    continue
+                for t in carre:
+                    if t == SPRITE_PALETTE_PLEINE:
+                        trouves.append({
+                            'x': cx * 256 + sx,
+                            'y': cy * 256 + sy,
+                            'z': z,
+                            'cat': 'or',
+                            't': 'Palette de lingots',
+                            'd': 'goldpallet · 1x1 · %s' % libelle,
+                        })
+                        break
+    return trouves
 
 
 def main():

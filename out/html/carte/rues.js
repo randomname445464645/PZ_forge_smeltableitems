@@ -1,24 +1,31 @@
 // Calque optionnel des noms de rues, dessine sur un canvas.
 //
-// Source : les fichiers streets/marks.json produits par pzmap2dzi (1098
-// polylignes pour la vanilla, plus celles de Trelai, Greenport et Maplewood).
-// 263 Ko au total, charges a la demande a la premiere activation.
-// Les points sont deja en coordonnees monde, aucune conversion a faire.
+// Source : les fichiers streets/marks.json produits par pzmap2dzi a partir des
+// streets.xml du jeu et des mods. 283 Ko au total, charges a la demande a la
+// premiere activation. Les points sont deja en coordonnees monde, aucune
+// conversion a faire.
+//
+// Ces fichiers manquaient : le calque etait branche mais les trois URL
+// renvoyaient 404, donc cocher la case ne faisait rien. Ils se regenerent avec
+//     python main.py -c conf/conf-sqr2.yaml render streets
+// depuis pzmap2dzi/, puis copie de map_data/**/streets/marks.json.
 
 import { vue, echelle, mondeVersEcranX, mondeVersEcranY,
          empriseMondeVisible } from './vue.js';
 
-// Seules Greenport et Maplewood fournissent des noms de rues cote mods :
-// Trelai a bien un dossier streets/ mais sans marks.json, et les six autres
-// cartes n'ont pas de calque streets du tout.
+// Cinq cartes sur neuf ont un streets.xml : la vanilla (1098 polylignes), Raven
+// Creek (45), New Hartburg (13), Greenport (15) et Maplewood (12). Constown,
+// Trelai, Chestown et LQZ n'en ont pas : le rendu sort zero marque pour elles.
 const SOURCES = [
   'map_data/streets/marks.json',
+  'map_data/mod_maps/RavenCreek_B42/streets/marks.json',
+  'map_data/mod_maps/NewHartburg_B42/streets/marks.json',
   'map_data/mod_maps/Greenport_B42/streets/marks.json',
   'map_data/mod_maps/Maplewood_B42/streets/marks.json',
 ];
 
 // Seuils exprimes en taille de case apparente (px CSS par case), pour valoir
-// dans les deux modes : le zoom brut differe de 7 crans entre dessus et iso.
+// dans les deux modes : le zoom brut differe de 6 crans entre dessus et iso.
 const CASE_MIN_TRACE = 1 / 16;  // en dessous c'est un plat de spaghettis
 const CASE_MIN_NOMS = 1 / 4;    // les noms ne sont lisibles qu'a partir de la
 
