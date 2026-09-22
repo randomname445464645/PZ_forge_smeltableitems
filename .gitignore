@@ -32,6 +32,14 @@ __pycache__/
 # suivre l'amont, mais il n'a pas sa place dans ce depot.
 pzmap2dzi/.git-upstream/
 
+# --- Donnees personnelles de jeu ---------------------------------------------
+# Releve des constructions produit par l'agent d'export : propre a chaque
+# joueur, grossit a chaque session, et n'a pas a etre partage.
+out/html/constructions.json
+
+# Sortie de compilation de l'agent
+outils/agent-monde/classes/
+
 # --- Divers -----------------------------------------------------------------
 *.pending
 *.empty

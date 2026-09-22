@@ -36,13 +36,13 @@ html, body {
 body.replie #carte { inset: 0; }
 #carte.glisse { cursor: grabbing; }
 
-#plan, #rues, #marqueurs {
+#plan, #rues, #constructions, #marqueurs {
   position: absolute;
   left: 0; top: 0;
   width: 100%; height: 100%;
 }
 #plan   { z-index: 1; }
-#rues   { z-index: 2; pointer-events: none; }
+#rues, #constructions   { z-index: 2; pointer-events: none; }
 #marqueurs { z-index: 3; pointer-events: none; }
 
 /* Tuiles : positionnees en pixels CSS, jamais dans un conteneur transforme. */
@@ -107,6 +107,8 @@ body.replie #carte { inset: 0; }
 .mq.repop i { box-shadow: 0 0 0 2px #5fbf72, 0 1px 3px rgba(0, 0, 0, .55); }
 
 /* Bloc de reglage du repop */
+#labelConstructions .nb { margin-left: auto; font-size: 11px; color: var(--faible); }
+
 #blocLoot .ligne-loot {
   display: flex; align-items: center; gap: 6px;
   margin-top: 6px;

@@ -15,6 +15,9 @@ import {
 } from './marqueurs.js';
 import { initRues, basculerRues, dessinerRues } from './rues.js';
 import * as loot from './loot.js';
+import { initConstructions, basculerConstructions, dessinerConstructions,
+         disponible as constructionsDisponibles,
+         nombreCases as nbConstructions } from './constructions.js';
 
 const $ = id => document.getElementById(id);
 
@@ -50,6 +53,7 @@ function demanderRendu(majListeAussi = false) {
 
 function rendre() {
   dessinerTuiles();
+  dessinerConstructions();
   dessinerRues();
   dessinerMarqueurs();
   majHud();
@@ -459,6 +463,7 @@ function restaurerVue() {
 async function demarrer() {
   initTuiles(plan);
   initRues($('rues'));
+  initConstructions($('constructions'));
   initMarqueurs($('marqueurs'), i => selectionner(i, false));
   mesurer();
 
@@ -487,6 +492,24 @@ async function demarrer() {
   remplirVilles();
   construireFiltres();
   enregistrerFiltres();   // fige l'etat par defaut des la premiere ouverture
+
+  // Le calque des constructions n'a de sens que si l'agent d'export a tourne.
+  await basculerConstructions(true);
+  if (constructionsDisponibles()) {
+    $('labelConstructions').hidden = false;
+    $('nbConstructions').textContent = nbConstructions() + ' cases';
+    let coche = true;
+    try { coche = localStorage.getItem('pzcarte.constructions') !== '0'; } catch (e) {}
+    $('calqueConstructions').checked = coche;
+    basculerConstructions(coche);
+    $('calqueConstructions').addEventListener('change', e => {
+      basculerConstructions(e.target.checked);
+      try { localStorage.setItem('pzcarte.constructions', e.target.checked ? '1' : '0'); } catch (err) {}
+      demanderRendu();
+    });
+  } else {
+    basculerConstructions(false);
+  }
 
   try {
     if (localStorage.getItem('pzcarte.rues') === '1') {

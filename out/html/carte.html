@@ -9,12 +9,13 @@
 <meta name="theme-color" content="#14161a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="pwa/icone-192.png">
-<link rel="stylesheet" href="carte/style.css?v=7">
+<link rel="stylesheet" href="carte/style.css?v=8">
 </head>
 <body>
 
 <div id="carte">
   <div id="plan"></div>
+  <canvas id="constructions"></canvas>
   <canvas id="rues"></canvas>
   <div id="marqueurs"></div>
 </div>
@@ -41,6 +42,10 @@
     </div>
     <label class="case-calque">
       <input type="checkbox" id="calqueRues"> noms de rues
+    </label>
+    <label class="case-calque" id="labelConstructions" hidden>
+      <input type="checkbox" id="calqueConstructions"> mes constructions
+      <i class="nb" id="nbConstructions"></i>
     </label>
   </div>
 
@@ -71,6 +76,6 @@
   <div id="liste"></div>
 </div>
 
-<script type="module" src="carte/app.js?v=13"></script>
+<script type="module" src="carte/app.js?v=14"></script>
 </body>
 </html>
