@@ -10,7 +10,7 @@
 // s'ouvrir instantanement et de fonctionner meme si le serveur local n'a pas
 // encore demarre.
 
-const VERSION = 'carte-pz-v3';   // v3 : nouveau logo
+const VERSION = 'carte-pz-v4';   // v4 : tout passe par le reseau d'abord
 
 // Chemins de la coquille. Les parametres ?v= des balises sont conserves tels
 // quels : c'est l'URL complete qui sert de cle de cache.
@@ -23,6 +23,12 @@ const COQUILLE = [
   '/carte/marqueurs.js',
   '/carte/rues.js',
   '/carte/loot.js',
+  '/carte/loot-table.js',
+  '/carte/exporter.js',
+  '/carte/constructions.js',
+  '/carte/bases.js',
+  '/carte/itineraire.js',
+  '/carte/loot-pieces.json',
   '/markers.json',
   '/favicon.ico',
   '/manifest.webmanifest',
@@ -59,37 +65,27 @@ self.addEventListener('fetch', e => {
   // Les tuiles et tout ce qui vient du rendu : reseau direct, jamais de cache.
   if (url.pathname.startsWith('/map_data/')) return;
 
-  // La PAGE elle-meme passe par le reseau d'abord, avec repli sur le cache.
-  // Servie depuis le cache, elle continuerait de reclamer les anciennes
-  // versions de app.js et style.css apres une retouche, et il faudrait deux
-  // rechargements pour voir un changement. Elle ne pese que quelques Ko, le
-  // detour par le reseau ne coute rien en local.
-  const estPage = e.request.mode === 'navigate'
-               || url.pathname === '/' || url.pathname.endsWith('.html');
-  if (estPage) {
-    e.respondWith(
-      fetch(e.request).then(rep => {
-        if (rep && rep.ok) {
-          const copie = rep.clone();
-          caches.open(VERSION).then(c => c.put(e.request, copie));
-        }
-        return rep;
-      }).catch(() => caches.match(e.request).then(r => r || caches.match('/carte.html')))
-    );
-    return;
-  }
-
-  // Le reste de la coquille : cache d'abord, rafraichi derriere.
+  // TOUTE la coquille passe par le reseau d'abord, avec repli sur le cache
+  // seulement si le serveur ne repond pas.
+  //
+  // Avant, seule la page etait servie ainsi, et le code en "cache d'abord,
+  // rafraichi derriere". Ca casse des qu'un module change d'interface : la
+  // page neuve charge app.js neuf, qui importe marqueurs.js... servi depuis
+  // le cache dans son ANCIENNE version, sans listerPour. L'import echoue, rien
+  // ne demarre, et il faut un deuxieme rechargement pour s'en sortir. Les
+  // modules ES n'ont pas de ?v= dans leurs import, donc l'URL ne change pas
+  // d'une version a l'autre et le cache ne peut pas faire la difference.
+  //
+  // Le serveur est local : le detour par le reseau coute une milliseconde.
+  // Le cache ne sert plus qu'a ouvrir la fenetre quand le serveur est eteint.
   e.respondWith(
-    caches.match(e.request).then(enCache => {
-      const reseau = fetch(e.request).then(rep => {
-        if (rep && rep.ok) {
-          const copie = rep.clone();
-          caches.open(VERSION).then(c => c.put(e.request, copie));
-        }
-        return rep;
-      }).catch(() => enCache);
-      return enCache || reseau;
-    })
+    fetch(e.request).then(rep => {
+      if (rep && rep.ok) {
+        const copie = rep.clone();
+        caches.open(VERSION).then(c => c.put(e.request, copie));
+      }
+      return rep;
+    }).catch(() => caches.match(e.request, { ignoreSearch: true })
+      .then(r => r || (e.request.mode === 'navigate' ? caches.match('/carte.html') : r)))
   );
 });

@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#14161a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="pwa/icone-192.png">
-<link rel="stylesheet" href="carte/style.css?v=13">
+<link rel="stylesheet" href="carte/style.css?v=15">
 </head>
 <body>
 
@@ -85,9 +85,9 @@
   <section class="volet" data-volet="trajet" hidden>
     <div class="bloc">
       <div class="ligne-boutons" style="margin-top:0">
-        <button data-trajet="auto" class="principal">auto</button>
-        <button data-trajet="manuel">manuel</button>
-        <button data-trajet="off">arreter</button>
+        <button data-trajet="auto" class="principal" title="Poser des etapes ; le trajet suit les routes">auto</button>
+        <button data-trajet="manuel" title="Poser des etapes ; elles se relient en ligne droite">manuel</button>
+        <button data-trajet="off" title="Les clics sur la carte n'ajoutent plus d'etape. Le trajet reste affiche.">fini</button>
       </div>
       <p class="aide" id="aideTrajet"></p>
       <div class="ligne-boutons">
@@ -150,6 +150,6 @@
   </section>
 </div>
 
-<script type="module" src="carte/app.js?v=32"></script>
+<script type="module" src="carte/app.js?v=33"></script>
 </body>
 </html>

@@ -11,7 +11,7 @@ import {
 import {
   CATEGORIES, etat, initMarqueurs, chargerMarqueurs, enregistrerFiltres,
   dessinerMarqueurs, reinitialiserAffichage, listerPour,
-  nombreActifs, empriseActifs,
+  nombreActifs, empriseActifs, definirActionTrajet,
 } from './marqueurs.js';
 import * as bases from './bases.js';
 import * as trajet from './itineraire.js';
@@ -329,9 +329,9 @@ carte.addEventListener('wheel', e => {
 }, { passive: false });
 
 window.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && (bases.etat.pose || trajet.etat.mode !== 'off')) {
+  if (e.key === 'Escape' && (bases.etat.pose || trajet.etat.pose)) {
     bases.etat.pose = false;
-    trajet.definirMode('off');
+    trajet.arreterPose();
     majConsigne();
     majPanneauBases();
     demanderRendu();
@@ -710,7 +710,9 @@ function consigne(texte) {
 function majConsigne() {
   if (bases.etat.pose) {
     consigne('Clique sur la carte pour poser la base. Echap pour annuler.');
-  } else if (trajet.etat.mode !== 'off') {
+  } else if (trajet.etat.attenteDepart) {
+    consigne('Clique ton point de depart sur la carte. Echap pour annuler.');
+  } else if (trajet.etat.pose) {
     consigne(trajet.etat.mode === 'auto'
       ? 'Clique les points de passage. Le trajet suit les routes. Echap pour arreter.'
       : 'Clique les points de passage. Trace en ligne droite. Echap pour arreter.');
@@ -803,7 +805,7 @@ function bouton(texte, action) {
 function initBasesPanneau() {
   $('poserBase').addEventListener('click', () => {
     bases.etat.pose = !bases.etat.pose;
-    if (bases.etat.pose) trajet.definirMode('off');
+    if (bases.etat.pose) trajet.arreterPose();
     majConsigne();
     majPanneauBases();
   });
@@ -863,23 +865,43 @@ function poserBase(x, y) {
 function partirDe(p) {
   const suite = trajet.etat.etapes.slice(1);
   trajet.definirEtapes([{ x: p.x, y: p.y }, ...suite]);
-  if (trajet.etat.mode === 'off') trajet.definirMode('auto');
   allerOnglet('trajet');
 }
 
 function allerVers(p) {
   const debut = trajet.etat.etapes.length ? [trajet.etat.etapes[0]] : [];
   trajet.definirEtapes([...debut, { x: p.x, y: p.y }]);
-  if (trajet.etat.mode === 'off') trajet.definirMode('auto');
+  allerOnglet('trajet');
+}
+
+/**
+ * "trajet jusqu'ici" depuis une pastille. Le depart est la base
+ * selectionnee, a defaut la premiere base posee, a defaut le depart deja
+ * present. Sans aucun des trois, on pose l'arrivee et on demande le depart.
+ */
+function trajetVers(m) {
+  const base = bases.trouver(bases.etat.selection) || bases.etat.liste[0] || null;
+  const depart = base ? { x: base.x, y: base.y }
+    : (trajet.etat.etapes[0] || null);
+  if (depart) {
+    trajet.definirEtapes([depart, { x: m.x, y: m.y }]);
+  } else {
+    trajet.attendreDepart({ x: m.x, y: m.y });
+  }
   allerOnglet('trajet');
 }
 
 function initTrajetPanneau() {
+  definirActionTrajet(trajetVers);
   for (const b of document.querySelectorAll('[data-trajet]')) {
     b.addEventListener('click', () => {
       const m = b.dataset.trajet;
-      if (m !== 'off') bases.etat.pose = false;
-      trajet.definirMode(m);
+      if (m === 'off') {
+        trajet.arreterPose();
+      } else {
+        bases.etat.pose = false;
+        trajet.definirMode(m);
+      }
       majConsigne();
       majPanneauBases();
     });
@@ -903,13 +925,16 @@ function initTrajetPanneau() {
 
 function majPanneauTrajet() {
   for (const b of document.querySelectorAll('[data-trajet]')) {
-    b.classList.toggle('actif', b.dataset.trajet === trajet.etat.mode);
+    const m = b.dataset.trajet;
+    b.classList.toggle('actif', m === 'off' ? !trajet.etat.pose : m === trajet.etat.mode);
   }
-  $('aideTrajet').textContent = trajet.etat.mode === 'auto'
-    ? "Le calcul passe par une grille de cout lue dans les tuiles du jeu, a 8 cases par pixel. Le bitume coute 1, un sol interieur 2, l'herbe 5, l'eau est infranchissable."
-    : trajet.etat.mode === 'manuel'
-      ? 'Les etapes se relient en ligne droite, sans tenir compte du terrain.'
-      : 'Choisis auto ou manuel, puis clique des points sur la carte.';
+  const pose = trajet.etat.pose
+    ? 'Chaque clic sur la carte ajoute une etape. Echap pour arreter.'
+    : 'Clique auto ou manuel pour poser des etapes sur la carte. '
+      + 'Depuis l\'onglet Bases, "depart" et "arrivee" remplissent le trajet.';
+  $('aideTrajet').textContent = pose + ' ' + (trajet.etat.mode === 'auto'
+    ? "Auto : le trajet suit une grille de cout lue dans les tuiles du jeu, a 8 cases par pixel. Le bitume coute 1, un sol interieur 2, l'herbe 5, l'eau est infranchissable."
+    : 'Manuel : les etapes se relient en ligne droite, sans tenir compte du terrain.');
 
   const r = $('resumeTrajet');
   r.textContent = '';
@@ -983,7 +1008,7 @@ function clicCarte(e) {
     poserBase(x, y);
     return true;
   }
-  if (trajet.etat.mode !== 'off') {
+  if (trajet.etat.pose) {
     trajet.ajouterEtape(x, y);
     return true;
   }

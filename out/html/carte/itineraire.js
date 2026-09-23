@@ -32,7 +32,12 @@ let grille = null;          // { x0, y0, largeur, hauteur, cout: Uint8Array }
 let chargement = null;
 
 export const etat = {
-  mode: 'off',              // 'off' | 'manuel' | 'auto'
+  // Deux reglages distincts. 'mode' dit comment relier les etapes, 'pose' dit
+  // si un clic sur la carte en ajoute une. Les confondre faisait qu'Echap,
+  // qui coupe la pose, transformait aussi un trajet auto en ligne droite.
+  mode: 'auto',             // 'auto' | 'manuel'
+  pose: false,
+  attenteDepart: false,     // le prochain clic devient l'etape 1, pas la derniere
   etapes: [],               // [{x, y}] poses par l'utilisateur
   trace: null,              // [{x, y}] chemin effectivement dessine
   distance: 0,              // en cases
@@ -40,12 +45,36 @@ export const etat = {
   calculEnCours: false,
 };
 
-let auChangement = () => {};
+let rappelExterne = () => {};
+
+// Le trajet survit a un rechargement : on garde le mode et les etapes, pas
+// le trace, qui se recalcule. Sans ca, recharger la page effacait tout ce
+// qu'on venait de planifier.
+const CLE = 'pzcarte.trajet';
+
+function auChangement() {
+  try {
+    localStorage.setItem(CLE, JSON.stringify({ mode: etat.mode, etapes: etat.etapes }));
+    // 'pose' n'est pas garde : rouvrir la carte en mode "chaque clic ajoute
+    // une etape" surprendrait.
+  } catch (e) { /* navigation privee */ }
+  rappelExterne();
+}
 
 export function initItineraire(element, rappel) {
   canvas = element;
   ctx = canvas.getContext('2d');
-  auChangement = rappel || (() => {});
+  rappelExterne = rappel || (() => {});
+  try {
+    const d = JSON.parse(localStorage.getItem(CLE) || 'null');
+    if (d && Array.isArray(d.etapes)) {
+      etat.mode = d.mode === 'manuel' ? 'manuel' : 'auto';
+      etat.etapes = d.etapes
+        .filter(p => p && isFinite(p.x) && isFinite(p.y))
+        .map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+    }
+  } catch (e) { /* valeur illisible : on repart de zero */ }
+  if (etat.etapes.length) recalculer();
 }
 
 // --- grille ----------------------------------------------------------------
@@ -75,9 +104,14 @@ export function chargerGrille() {
       // comme dans le rendu.
       cartes.sort((a, b) => (a[0] === 'default' ? -1 : b[0] === 'default' ? 1 : 0));
       for (const [, c] of cartes) {
-        const img = new Image();
-        img.src = 'map_data/itineraire/' + c.fichier;
-        await img.decode();
+        // fetch + createImageBitmap plutot que new Image() + decode() :
+        // decode() attend que la page soit peinte, et au rechargement le
+        // trajet restaure restait bloque sur "calcul..." tant que rien ne
+        // forcait un rendu. createImageBitmap decode hors du fil de rendu.
+        const url = 'map_data/itineraire/' + c.fichier + '?v=' + (index.version || 0);
+        const rep = await fetch(url);
+        if (!rep.ok) throw new Error('grille ' + c.fichier + ' : ' + rep.status);
+        const img = await createImageBitmap(await rep.blob());
         const cv = document.createElement('canvas');
         cv.width = c.largeur; cv.height = c.hauteur;
         const cx = cv.getContext('2d', { willReadFrequently: true });
@@ -273,9 +307,22 @@ function simplifier(points, tolerance) {
 
 // --- pilotage ---------------------------------------------------------------
 
+/** Choisit la facon de relier les etapes et active la pose au clic. */
 export function definirMode(m) {
-  etat.mode = m;
-  if (m === 'off') vider();
+  const avant = etat.mode;
+  etat.mode = m === 'manuel' ? 'manuel' : 'auto';
+  etat.pose = true;
+  if (etat.mode !== avant && etat.etapes.length > 1) {
+    recalculer();
+    return;
+  }
+  auChangement();
+}
+
+/** Coupe la pose au clic. Le trajet reste affiche tel quel. */
+export function arreterPose() {
+  etat.pose = false;
+  etat.attenteDepart = false;
   auChangement();
 }
 
@@ -288,7 +335,22 @@ export function vider() {
 }
 
 export function ajouterEtape(x, y) {
-  etat.etapes.push({ x: Math.round(x), y: Math.round(y) });
+  const p = { x: Math.round(x), y: Math.round(y) };
+  if (etat.attenteDepart) {
+    etat.etapes.unshift(p);
+    etat.attenteDepart = false;
+    etat.pose = false;
+  } else {
+    etat.etapes.push(p);
+  }
+  recalculer();
+}
+
+/** Pose l'arrivee seule ; le prochain clic sur la carte sera le depart. */
+export function attendreDepart(arrivee) {
+  etat.etapes = [{ x: Math.round(arrivee.x), y: Math.round(arrivee.y) }];
+  etat.attenteDepart = true;
+  etat.pose = true;
   recalculer();
 }
 
@@ -306,7 +368,9 @@ export async function recalculer() {
   if (etat.etapes.length < 2) {
     etat.trace = etat.etapes.length ? etat.etapes.slice() : null;
     etat.distance = 0;
-    etat.message = etat.etapes.length === 1 ? 'pose une deuxieme etape' : '';
+    etat.message = etat.etapes.length !== 1 ? ''
+      : etat.attenteDepart ? 'arrivee posee : clique ton point de depart sur la carte'
+      : 'pose une deuxieme etape';
     auChangement();
     return;
   }

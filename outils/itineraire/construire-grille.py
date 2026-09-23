@@ -151,7 +151,9 @@ def main():
     os.makedirs(SORTIE, exist_ok=True)
     cartes = ex.charger_conf()
     total = sum(len(cellules(c)) for c in cartes.values())
-    index = {'pas': PAS, 'cartes': {}}
+    # La version sert a contourner le cache HTTP : le serveur envoie les .png
+    # avec max-age d'une semaine, un PNG reconstruit ne serait pas relu.
+    index = {'pas': PAS, 'version': int(time.time()), 'cartes': {}}
     faits = 0
     debut = time.time()
     with open(JOURNAL, 'w') as jrn:

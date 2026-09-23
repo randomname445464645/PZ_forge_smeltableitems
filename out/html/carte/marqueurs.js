@@ -74,6 +74,9 @@ export const etat = {
 let conteneur = null;
 const elements = new Map();     // index de marqueur -> element DOM
 let auClic = () => {};
+// Branche par app.js : marqueurs.js ne connait ni les bases ni le trajet.
+let actionTrajet = null;
+export function definirActionTrajet(fn) { actionTrajet = fn; }
 
 // Piece -> objets qui peuvent y apparaitre, produit par
 // outils/marqueurs/extraire-loot.py depuis les tables de loot du jeu.
@@ -242,6 +245,14 @@ function remplirBulle(m, el) {
       table.appendChild(tr);
     }
     b.appendChild(table);
+  }
+
+  if (actionTrajet) {
+    const t = document.createElement('button');
+    t.className = 'mq-bulle-tout';
+    t.textContent = 'trajet jusqu\'ici';
+    t.addEventListener('click', () => { cacherBulle(); actionTrajet(m); });
+    b.appendChild(t);
   }
 
   if (piece && loots && loots[piece] && (loots[piece].m || []).length) {
