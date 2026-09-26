@@ -556,15 +556,13 @@ async function suivreSync(etat) {
       }
       etat.className = 'reel';
       etat.textContent = 'rechargement...';
+      calqueExiste = true;
+      // On vient de synchroniser pour VOIR le resultat : on coche le calque,
+      // et on passe en iso si besoin, seule vue ou il existe.
+      enregistrerPrefConstructions(true);
+      if (mode !== 'iso') await basculerMode('iso');
       await rechargerConstructions();
-      if (constructionsDisponibles()) {
-        $('labelConstructions').hidden = false;
-        $('nbConstructions').textContent = nbConstructions() + ' cases';
-        if (!$('calqueConstructions').checked) {
-          $('calqueConstructions').checked = true;
-          basculerConstructions(true);
-        }
-      }
+      majCalqueConstructions();
       viderTuiles();
       demanderRendu(true);
       etat.className = 'reel ok';
@@ -574,6 +572,42 @@ async function suivreSync(etat) {
     const min = Math.floor(d.secondes / 60), s = d.secondes % 60;
     etat.textContent = `${LIBELLE[d.etape] || d.etape || 'en cours'} · ${min}:${String(s).padStart(2, '0')}`;
   }
+}
+
+// --- calque des constructions -----------------------------------------------
+
+// Le calque n'existe qu'en vue ISOMETRIQUE : rendre-calque.py le dessine avec
+// les sprites iso du jeu, et la vue de dessus n'a pas de pyramide pour lui.
+//
+// Avant, cet etat n'etait evalue qu'au demarrage. Ouvrir la carte en vue de
+// dessus cachait donc la case "mes constructions", decochait le calque, et
+// rien ne la refaisait apparaitre en passant en iso. Une synchronisation
+// lancee depuis la vue de dessus se terminait sur "4407428 cases" sans rien
+// montrer nulle part.
+let calqueExiste = false;
+
+function prefConstructions() {
+  try { return localStorage.getItem('pzcarte.constructions') !== '0'; } catch (e) { return true; }
+}
+
+function enregistrerPrefConstructions(v) {
+  try { localStorage.setItem('pzcarte.constructions', v ? '1' : '0'); } catch (e) {}
+}
+
+function majCalqueConstructions() {
+  const label = $('labelConstructions');
+  const cb = $('calqueConstructions');
+  const nb = $('nbConstructions');
+  const iso = (mode === 'iso');
+  label.hidden = !calqueExiste;
+  if (!calqueExiste) { basculerConstructions(false); return; }
+  const voulu = prefConstructions();
+  cb.checked = voulu;
+  // En vue de dessus la geometrie ne charge pas le calque : on le dit a cote
+  // de la case, et la cocher bascule en iso.
+  basculerConstructions(iso && voulu);
+  nb.textContent = iso ? nbConstructions() + ' cases' : 'vue iso seulement';
+  label.title = iso ? '' : "Le calque est dessine avec les sprites isometriques du jeu : il n'existe qu'en vue iso. Cocher la case y bascule.";
 }
 
 // --- bascule entre vue de dessus et isometrique ----------------------------
@@ -602,6 +636,7 @@ async function basculerMode(vers) {
 
   try {
     const pyramides = await chargerGeometrie(vers);
+    majCalqueConstructions();          // nouvelles pyramides : masque a remettre
     viderTuiles();
     centrerSur(centre.x, centre.y, zoomVoulu);
     majBascule();
@@ -611,6 +646,7 @@ async function basculerMode(vers) {
     // Retour au mode precedent plutot que de laisser le viewer vide.
     console.error('bascule impossible :', e.message);
     await chargerGeometrie(ancien);
+    majCalqueConstructions();
     viderTuiles();
     centrerSur(centre.x, centre.y, zoomAvant);
     majBascule();
@@ -1065,30 +1101,21 @@ async function demarrer() {
   construireFiltres();
   enregistrerFiltres();   // fige l'etat par defaut des la premiere ouverture
 
-  // Le calque des constructions n'a de sens que si l'agent d'export a tourne.
-  await basculerConstructions(true);
-  if (constructionsDisponibles()) {
-    $('labelConstructions').hidden = false;
-    // Les sprites arrivent de facon asynchrone : il faut redessiner a chaque
-    // image chargee, sinon le calque reste incomplet jusqu'au prochain geste.
-    initSync();
-    $('nbConstructions').textContent = nbConstructions() + ' cases';
-    let coche = true;
-    try { coche = localStorage.getItem('pzcarte.constructions') !== '0'; } catch (e) {}
-    $('calqueConstructions').checked = coche;
-    basculerConstructions(coche);
-    $('calqueConstructions').addEventListener('change', e => {
-      basculerConstructions(e.target.checked);
-      try { localStorage.setItem('pzcarte.constructions', e.target.checked ? '1' : '0'); } catch (err) {}
-      demanderRendu();
-    });
-  } else {
-    basculerConstructions(false);
-    // Le bouton reste offert : c'est souvent la premiere synchronisation qui
-    // fait apparaitre le calque.
-    $('ligneSync').hidden = false;
-    initSync();
-  }
+  // Calque des constructions : la case est branchee une fois pour toutes,
+  // son etat est ensuite recalcule a chaque changement de vue.
+  calqueExiste = await fetch('map_data/constructions/info.json', { method: 'HEAD' })
+    .then(r => r.ok).catch(() => false);
+  $('calqueConstructions').addEventListener('change', async e => {
+    enregistrerPrefConstructions(e.target.checked);
+    if (e.target.checked && mode !== 'iso') {
+      await basculerMode('iso');       // le calque n'existe qu'en iso
+    }
+    majCalqueConstructions();
+    demanderRendu();
+  });
+  $('ligneSync').hidden = false;       // la premiere synchro cree le calque
+  initSync();
+  majCalqueConstructions();
 
   try {
     if (localStorage.getItem('pzcarte.rues') === '1') {

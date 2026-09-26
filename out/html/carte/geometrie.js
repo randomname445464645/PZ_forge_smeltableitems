@@ -215,6 +215,14 @@ async function chargerCalque(p, r) {
     p.tuiles.set(parseInt(niv, 10), new Set(liste.map(([a, b]) => a + ',' + b)));
   }
   p.cases = info.cases || 0;
+  // Date du rendu, reprise dans l'URL des tuiles. Sans elle, une tuile
+  // reecrite par une synchronisation garde la meme adresse, et le serveur
+  // envoie les .webp avec une semaine de cache : le navigateur reaffichait
+  // l'ancienne version, sans les chunks explores depuis. Mesure faite le
+  // 26/09 : 28 334 tuiles reecrites a 10:30, adresses identiques a celles
+  // du 22/09. info.json, lui, n'est jamais mis en cache, donc la date est
+  // toujours fraiche.
+  p.version = String(info.genere || '').replace(/\D/g, '');
   p.absente = false;
 }
 
@@ -274,7 +282,8 @@ const VERSION_TUILES = 2;   // 2 : ajout du mode isometrique
 
 export function urlTuile(pyramide, niveau, tx, ty) {
   return `${pyramide.racine}/layer0_files/${niveau}/${tx}_${ty}.${pyramide.format}`
-       + `?r=${VERSION_TUILES}.${mode}.${pyramide.sqr}.${pyramide.w}x${pyramide.h}`;
+       + `?r=${VERSION_TUILES}.${mode}.${pyramide.sqr}.${pyramide.w}x${pyramide.h}`
+       + (pyramide.version ? '.' + pyramide.version : '');
 }
 
 /**

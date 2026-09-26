@@ -238,7 +238,9 @@ export function dessinerTuiles() {
         if (tx * p.tailleTuile >= taille.w || ty * p.tailleTuile >= taille.h) continue;
         if (!tuileExiste(p, niveau, tx, ty)) continue;
 
-        const cle = `${p.nom}|${niveau}|${tx}|${ty}`;
+        // La version du calque entre dans la cle : apres une synchronisation,
+        // une tuile deja a l'ecran doit etre remplacee, pas gardee.
+        const cle = `${p.nom}|${p.version || ''}|${niveau}|${tx}|${ty}`;
         gardees.add(cle);
 
         // Le dernier rang de tuiles d'un niveau est rogne : sa taille reelle
