@@ -143,9 +143,18 @@ def main():
     conf = load_yaml(os.path.join(PROJET, 'pzmap2dzi', 'conf', 'conf-iso.yaml'))
     pz_root = conf['pz_root']
 
-    proc, dist = charger_tables(pz_root)
+    # Memes tables que la verification des pastilles, mods compris : sinon
+    # l'infobulle de la salle des coffres de Trelai n'avait aucune liste,
+    # alors que la pastille venait d'etre posee d'apres cette meme table.
+    sys.path.insert(0, RACINE)
+    import verification
+    proc, dist, mods = verification.charger_tables(pz_root)
+    print('tables des mods : %s' % (', '.join(mods) or 'aucune'))
     noms = charger_noms(pz_root)
-    nom_fr = lambda o: noms.get('Base.' + o, o)
+    def nom_fr(o):
+        # Objets de mods : 'Trelai.TrelaiGoldBar'. Le jeu n'a pas leur nom
+        # francais ; on essaie l'identifiant complet, puis on retire le module.
+        return noms.get(o) or noms.get('Base.' + o) or o.split('.')[-1]
 
     # Conteneurs : les entrees de Distributions qui ont leurs items en direct.
     contenants = {}

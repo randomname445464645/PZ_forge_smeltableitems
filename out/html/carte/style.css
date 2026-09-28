@@ -588,3 +588,5 @@ body.pose-en-cours #carte { cursor: crosshair; }
 .etape.arrivee .rang { background: #e8735f; }
 .etape .ou { flex: 1; min-width: 0; color: var(--faible); }
 .etape button { font-size: 11px; padding: 1px 6px; }
+
+.mq-bulle-attendu { margin-top: 4px; color: #8fd14f; font-size: 11px; }
