@@ -243,6 +243,38 @@ seconde tant que la position est fraîche, toutes les 5 s sinon.
   indique depuis quand : jeu fermé, menu, ou agent absent.
 - Onglet Calques, case « ma position en direct » pour tout couper.
 
+### Les autres joueurs
+
+Le même fichier contient `"autres"`, les autres joueurs **connus de ton
+client**, pris à deux endroits du jeu :
+
+- `GameClient.IDToPlayerMap` : les joueurs **proches**, que ton client simule.
+  Données complètes : étage, orientation, véhicule. Marqués `"p":1`.
+- `WorldMapRemotePlayers` : ce qui alimente la carte du monde en jeu. Position
+  et pseudo seulement, mais aussi pour les joueurs lointains, **si le serveur
+  le permet** (option `MapRemotePlayerVisibility` : personne, faction, faction
+  et visibles, tous). Marqués `"p":0`.
+
+Fusion par identifiant réseau. Les joueurs invisibles (administrateurs)
+restent cachés, avec la même règle que le jeu. Un joueur absent des deux
+listes n'existe pas pour ton client : il ne peut pas apparaître sur la carte.
+
+Sur la carte : pastille verte avec le pseudo, plus petite pour un joueur
+lointain. Un clic dessus, ou « suivre » dans l'onglet Calques, fait suivre ce
+joueur. Un joueur qui disparaît des listes (déconnexion, sortie de portée)
+reste grisé 2 minutes avec « vu il y a… ».
+
+### La direction
+
+- **En mouvement** : le déplacement réel entre deux positions.
+- **À l'arrêt** : l'orientation donnée par le jeu quand elle existe (toi et les
+  joueurs proches), sinon la dernière direction connue.
+
+Convention de l'angle, lue dans le code du jeu :
+`IsoGameCharacter.getDirectionAngleRadians()` renvoie
+`forwardDirection.getDirection()`, soit `atan2(y, x)`. Le vecteur en
+coordonnées du monde est donc `(cos a, sin a)`.
+
 Option de l'agent : `position=<ms>`, défaut 1000, `0` pour désactiver, 200 au
 minimum.
 

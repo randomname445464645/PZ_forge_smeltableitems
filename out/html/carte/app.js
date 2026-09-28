@@ -352,7 +352,10 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'ArrowUp') { deplacer(0, pas); demanderRendu(true); }
   else if (e.key === 'ArrowDown') { deplacer(0, -pas); demanderRendu(true); }
   else if (e.key === 'f' || e.key === 'F') {
-    if (!$('suivre').hidden) joueur.basculerSuivi();
+    if (!$('suivre').hidden) {
+      if (joueur.etat.suivre) joueur.basculerSuivi(false);
+      else joueur.basculerSuivi(true, 'moi');
+    }
   }
   else if (e.key === 'v' || e.key === 'V') {
     const b = $('bascule');
@@ -1049,11 +1052,55 @@ function majJoueurUI() {
   const b = $('suivre');
   // Le bouton n'apparait que si une position existe : sans agent dans le jeu,
   // il n'y a personne a suivre.
-  b.hidden = !joueur.etat.actif || !joueur.etat.pos;
+  b.hidden = !joueur.etat.actif || !joueur.moi();
   b.classList.toggle('actif', joueur.etat.suivre);
-  b.textContent = joueur.etat.suivre ? 'suivi actif' : 'me suivre';
+  const nom = joueur.nomSuivi();
+  b.textContent = !nom ? 'me suivre' : (nom === 'toi' ? 'suivi actif' : 'suit ' + nom);
   $('etatJoueur').textContent = joueur.texteEtat();
   $('calqueJoueur').checked = joueur.etat.actif;
+  majListeJoueurs();
+}
+
+// Liste des autres joueurs : reconstruite seulement si elle a change, sinon
+// on la referait chaque seconde pour rien.
+let signatureJoueurs = '';
+
+function majListeJoueurs() {
+  const hote = $('listeJoueurs');
+  const l = joueur.etat.actif ? joueur.autres() : [];
+  const t = joueur.etat.t;
+  const sig = l.map(j => [j.cle, j.n, j.distance, j.vuA === t, j.proche,
+                          joueur.etat.suivre && joueur.etat.cible === j.cle].join(':')).join('|');
+  if (sig === signatureJoueurs) return;
+  signatureJoueurs = sig;
+  hote.textContent = '';
+  if (!joueur.moi()) return;
+  const titre = document.createElement('div');
+  titre.className = 'aide';
+  titre.textContent = l.length
+    ? `${l.length} autre${l.length > 1 ? 's' : ''} joueur${l.length > 1 ? 's' : ''} connu${l.length > 1 ? 's' : ''} de ton client`
+    : "aucun autre joueur connu de ton client : personne a portee, ou le serveur ne partage pas les positions sur la carte";
+  hote.appendChild(titre);
+  for (const j of l) {
+    const ligne = document.createElement('div');
+    ligne.className = 'ligne-joueur' + (j.vuA === t ? '' : ' absent');
+    const nom = document.createElement('span');
+    nom.className = 'nom';
+    nom.textContent = j.n || ('joueur ' + j.id);
+    const info = document.createElement('span');
+    info.className = 'info';
+    info.textContent = (j.distance !== null ? j.distance + ' cases' : '')
+      + (j.proche ? '' : ' · loin')
+      + (j.vuA === t ? '' : ' · vu il y a ' + joueur.dureeCourte((t - j.vuA) / 1000));
+    const suivre = bouton(joueur.etat.suivre && joueur.etat.cible === j.cle ? 'arreter' : 'suivre', () => {
+      const deja = joueur.etat.suivre && joueur.etat.cible === j.cle;
+      joueur.basculerSuivi(!deja, j.cle);
+    });
+    ligne.appendChild(nom);
+    ligne.appendChild(info);
+    ligne.appendChild(suivre);
+    hote.appendChild(ligne);
+  }
 }
 
 function initJoueurPanneau() {
@@ -1065,7 +1112,11 @@ function initJoueurPanneau() {
     joueur.activer(this.checked);
     try { localStorage.setItem('pzcarte.joueur', this.checked ? '1' : '0'); } catch (e) {}
   });
-  $('suivre').addEventListener('click', () => joueur.basculerSuivi());
+  // Le bouton suit TOI. Si tu suis deja quelqu'un, il arrete le suivi.
+  $('suivre').addEventListener('click', () => {
+    if (joueur.etat.suivre) joueur.basculerSuivi(false);
+    else joueur.basculerSuivi(true, 'moi');
+  });
 }
 
 // --- clic sur la carte -----------------------------------------------------

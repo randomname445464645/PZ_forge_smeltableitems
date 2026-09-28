@@ -22,7 +22,9 @@ import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = 8880
+# Reglables pour lancer une instance de test a cote de la vraie, sans
+# toucher a la position que l'agent du jeu ecrit.
+PORT = int(os.environ.get('PZCARTE_PORT', 8880))
 RACINE = os.path.dirname(os.path.realpath(__file__))
 
 # Les tuiles et les icones ne changent jamais : cache long.
@@ -33,7 +35,7 @@ SANS_CACHE = ('.html', '.js', '.css', '.json', '.dzi', '.webmanifest')
 
 # --- position du joueur -----------------------------------------------------
 
-POSITION = os.path.expanduser('~/Zomboid/pz-export/position.json')
+POSITION = os.environ.get('PZCARTE_POSITION') or os.path.expanduser('~/Zomboid/pz-export/position.json')
 
 
 def lire_position():

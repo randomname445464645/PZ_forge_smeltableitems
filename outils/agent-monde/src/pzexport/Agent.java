@@ -9,8 +9,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import zombie.characters.IsoPlayer;
 import zombie.iso.IsoCell;
@@ -18,6 +20,9 @@ import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoThumpable;
+import zombie.network.GameClient;
+import zombie.worldMap.WorldMapRemotePlayer;
+import zombie.worldMap.WorldMapRemotePlayers;
 import zombie.util.list.PZArrayList;
 
 /**
@@ -47,7 +52,8 @@ import zombie.util.list.PZArrayList;
  * POSITION DU JOUEUR
  *     Un second thread ecrit position.json a cote du fichier de sortie :
  *         {"x":..,"y":..,"z":..,"a":angle,"v":0|1,"m":0|1,"t":horodatage_ms}
- *     v = en vehicule, m = mort. Ecriture dans un .tmp puis renommage
+ *     v = en vehicule, m = mort. S'y ajoute "autres", les autres joueurs
+ *     connus du client (voir autres()). Ecriture dans un .tmp puis renommage
  *     atomique : le serveur de la carte ne lit jamais un fichier a moitie
  *     ecrit. Ce thread est separe du balayage, qui peut prendre plusieurs
  *     secondes sur une grande zone chargee ; la position, elle, doit suivre.
@@ -254,10 +260,10 @@ public final class Agent {
                 float x = j.getX(), y = j.getY(), z = j.getZ();
                 if (!Float.isFinite(x) || !Float.isFinite(y) || x <= 0f || y <= 0f) continue;
                 String json = String.format(Locale.ROOT,
-                        "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"a\":%.3f,\"v\":%d,\"m\":%d,\"t\":%d}",
+                        "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"a\":%.3f,\"v\":%d,\"m\":%d,\"t\":%d,\"autres\":%s}",
                         x, y, z, j.getDirectionAngleRadians(),
                         j.getVehicle() != null ? 1 : 0, j.isDead() ? 1 : 0,
-                        System.currentTimeMillis());
+                        System.currentTimeMillis(), autres(j));
                 Files.writeString(tmp, json, StandardCharsets.UTF_8);
                 Files.move(tmp, fin, StandardCopyOption.REPLACE_EXISTING,
                         StandardCopyOption.ATOMIC_MOVE);
@@ -272,6 +278,90 @@ public final class Agent {
                 }
             }
         }
+    }
+
+    /**
+     * Les autres joueurs connus du client, en tableau JSON.
+     *
+     * Deux sources, dans cet ordre :
+     *   1. GameClient.IDToPlayerMap : les joueurs PROCHES, que le client
+     *      simule. Donnees completes : etage, orientation, vehicule, mort.
+     *   2. WorldMapRemotePlayers : ce qui alimente la carte du monde en jeu.
+     *      Position et nom seulement, mais aussi pour les joueurs lointains,
+     *      si le serveur le permet (option MapRemotePlayerVisibility).
+     * Fusion par identifiant reseau : un joueur proche n'apparait qu'une fois,
+     * avec ses donnees completes. "p":1 marque un joueur proche.
+     *
+     * Les joueurs invisibles (administrateurs) restent caches, comme dans le
+     * jeu : on applique isInvisible() et canSeeInvisiblePlayer().
+     *
+     * Ces listes sont modifiees par le fil reseau pendant qu'on les lit : on
+     * copie d'abord (toArray), et une lecture ratee est simplement refaite a la
+     * seconde suivante.
+     */
+    private static String autres(IsoPlayer moi) {
+        StringBuilder sb = new StringBuilder(256).append('[');
+        Set<Short> vus = new HashSet<>();
+        short monId = moi.getOnlineID();
+        vus.add(monId);
+        int n = 0;
+        try {
+            for (Object o : GameClient.IDToPlayerMap.values().toArray()) {
+                if (!(o instanceof IsoPlayer p)) continue;
+                if (p == moi || p.isLocalPlayer() || p.isInvisible()) continue;
+                float x = p.getX(), y = p.getY();
+                if (!Float.isFinite(x) || !Float.isFinite(y) || x <= 0f || y <= 0f) continue;
+                if (!vus.add(p.getOnlineID())) continue;
+                if (n++ > 0) sb.append(',');
+                sb.append(String.format(Locale.ROOT,
+                        "{\"id\":%d,\"n\":%s,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"a\":%.3f,\"v\":%d,\"m\":%d,\"p\":1}",
+                        p.getOnlineID(), chaine(p.getUsername()), x, y, p.getZ(),
+                        p.getDirectionAngleRadians(),
+                        p.getVehicle() != null ? 1 : 0, p.isDead() ? 1 : 0));
+            }
+        } catch (Throwable e) {
+            // liste modifiee pendant la copie : on refera a la prochaine seconde
+        }
+        try {
+            WorldMapRemotePlayers carte = WorldMapRemotePlayers.instance;
+            if (carte != null) {
+                for (Object o : carte.getPlayers().toArray()) {
+                    if (!(o instanceof WorldMapRemotePlayer r)) continue;
+                    if (r.isInvisible() && !r.canSeeInvisiblePlayer()) continue;
+                    float x = r.getX(), y = r.getY();
+                    if (!Float.isFinite(x) || !Float.isFinite(y) || x <= 0f || y <= 0f) continue;
+                    if (!vus.add(r.getOnlineID())) continue;
+                    if (n++ > 0) sb.append(',');
+                    sb.append(String.format(Locale.ROOT,
+                            "{\"id\":%d,\"n\":%s,\"x\":%.2f,\"y\":%.2f,\"p\":0}",
+                            r.getOnlineID(), chaine(r.hasFullData() ? r.getUsername() : null), x, y));
+                }
+            }
+        } catch (Throwable e) {
+            // idem
+        }
+        return sb.append(']').toString();
+    }
+
+    /** Chaine JSON complete, ou null. Un pseudo peut contenir n'importe quoi. */
+    private static String chaine(String s) {
+        if (s == null) return "null";
+        StringBuilder b = new StringBuilder(s.length() + 2).append('"');
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"' -> b.append("\\\"");
+                case '\\' -> b.append("\\\\");
+                case '\n' -> b.append("\\n");
+                case '\r' -> b.append("\\r");
+                case '\t' -> b.append("\\t");
+                default -> {
+                    if (c < 0x20) b.append(String.format("\\u%04x", (int) c));
+                    else b.append(c);
+                }
+            }
+        }
+        return b.append('"').toString();
     }
 
     /** Echappement JSON minimal : les noms de sprites sont alphanumeriques. */

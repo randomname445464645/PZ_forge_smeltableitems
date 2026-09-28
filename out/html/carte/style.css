@@ -652,3 +652,26 @@ body.replie #suivre { right: 8px; }
 .joueur.perime .point { background: #6a6a72; border-color: #aaa; }
 .joueur.perime .halo { display: none; }
 .joueur.perime span { color: #9a9aa2; }
+
+/* Autres joueurs : vert, cliquables pour les suivre. */
+.joueur.autre .point { background: #5fbf72; cursor: pointer; pointer-events: auto; }
+.joueur.autre .halo { background: rgba(95,191,114,.22); }
+.joueur.autre span { color: #d6f5dc; pointer-events: auto; cursor: pointer; }
+/* Joueur lointain, connu par la carte du monde seulement : pas d'etage, pas
+   d'orientation du jeu, on le montre plus discret. */
+.joueur.loin .point { width: 10px; height: 10px; left: -5px; top: -5px; }
+.joueur.loin .halo { display: none; }
+.joueur.autre.vehicule .point { background: #e0a33c; }
+.joueur.suivi .point { box-shadow: 0 0 0 3px #59b7ff, 0 2px 6px rgba(0,0,0,.6); }
+.joueur.autre.perime .point { background: #6a6a72; }
+
+#listeJoueurs { margin-top: 6px; }
+.ligne-joueur {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0; font-size: 12px;
+  border-bottom: 1px solid var(--trait);
+}
+.ligne-joueur .nom { font-weight: 600; color: #d6f5dc; }
+.ligne-joueur .info { flex: 1; color: var(--faible); font-size: 11px; }
+.ligne-joueur button { font-size: 11px; padding: 1px 7px; }
+.ligne-joueur.absent .nom { color: var(--faible); }
