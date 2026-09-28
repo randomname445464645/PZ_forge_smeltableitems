@@ -692,3 +692,10 @@ body.replie #suivre { right: 8px; }
 .stat-joueur table { border-collapse: collapse; }
 .stat-joueur td { padding: 0 10px 0 0; color: var(--faible); }
 .stat-joueur td.v { color: var(--texte); font-variant-numeric: tabular-nums; }
+
+/* Liste des autres joueurs : repliable, hauteur bornee. */
+#blocJoueurs { margin-top: 8px; }
+#blocJoueurs[hidden] { display: none; }
+#blocJoueurs summary { cursor: pointer; font-size: 12px; color: var(--faible); padding: 3px 0; }
+#blocJoueurs summary:hover { color: var(--texte); }
+#listeJoueurs { max-height: 260px; overflow: auto; }

@@ -89,8 +89,25 @@ export function enDirect() {
 
 export function moi() { return etat.joueurs.get(MOI) || null; }
 
+/**
+ * Oublie les autres joueurs vus il y a plus de OUBLI secondes, selon
+ * l'HORLOGE, pas selon les lectures : jeu ferme, plus aucune lecture
+ * n'arrive, et les 28 joueurs de la derniere partie restaient affiches des
+ * heures. Toi, jamais : ta derniere position reste utile.
+ */
+function oublierAnciens() {
+  const maintenant = Date.now();
+  for (const [cle, j] of etat.joueurs) {
+    if (cle === MOI || (maintenant - j.vuA) / 1000 <= OUBLI) continue;
+    if (j.el) j.el.remove();
+    etat.joueurs.delete(cle);
+    if (etat.cible === cle) { etat.cible = MOI; etat.suivre = false; }
+  }
+}
+
 /** Les autres joueurs, du plus proche de toi au plus loin. */
 export function autres() {
+  oublierAnciens();
   const m = moi();
   const l = [...etat.joueurs.values()].filter(j => j.cle !== MOI);
   for (const j of l) j.distance = m ? Math.round(Math.hypot(j.x - m.x, j.y - m.y)) : null;
@@ -139,14 +156,7 @@ function recevoir(d) {
   }
   // Absents de cette lecture : deconnexion, ou sortis de ce que ton client
   // connait. On les garde grises un moment, puis on les oublie.
-  for (const [cle, j] of etat.joueurs) {
-    if (presents.has(cle)) continue;
-    if ((d.t - j.vuA) / 1000 > OUBLI) {
-      if (j.el) j.el.remove();
-      etat.joueurs.delete(cle);
-      if (etat.cible === cle) { etat.cible = MOI; etat.suivre = false; }
-    }
-  }
+  oublierAnciens();
   if (!anime) { anime = true; requestAnimationFrame(animer); }
 }
 
@@ -221,6 +231,7 @@ function creerElement(j) {
 
 export function dessinerJoueur() {
   if (!conteneur) return;
+  oublierAnciens();
   const live = enDirect();
   for (const j of etat.joueurs.values()) {
     if (!j.el) j.el = creerElement(j);

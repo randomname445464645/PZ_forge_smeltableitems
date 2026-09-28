@@ -1080,13 +1080,21 @@ function majListeJoueurs() {
   if (sig === signatureJoueurs) return;
   signatureJoueurs = sig;
   hote.textContent = '';
-  if (!joueur.moi()) return;
-  const titre = document.createElement('div');
-  titre.className = 'aide';
-  titre.textContent = l.length
-    ? `${l.length} autre${l.length > 1 ? 's' : ''} joueur${l.length > 1 ? 's' : ''} connu${l.length > 1 ? 's' : ''} de ton client`
-    : "aucun autre joueur connu de ton client : personne a portee, ou le serveur ne partage pas les positions sur la carte";
-  hote.appendChild(titre);
+  const bloc = $('blocJoueurs');
+  // Rien a montrer tant qu'on n'a pas de position, ou si le jeu est ferme
+  // depuis longtemps (les autres sont alors oublies).
+  bloc.hidden = !joueur.moi() || (!l.length && !joueur.enDirect());
+  if (bloc.hidden) return;
+  $('resumeJoueurs').textContent = l.length
+    ? `${l.length} autre${l.length > 1 ? 's' : ''} joueur${l.length > 1 ? 's' : ''} en jeu`
+    : 'aucun autre joueur';
+  if (!l.length) {
+    const p = document.createElement('div');
+    p.className = 'aide';
+    p.textContent = "Ton client ne connait personne d'autre : personne a portee, "
+      + 'ou le serveur ne partage pas les positions sur la carte.';
+    hote.appendChild(p);
+  }
   for (const j of l) {
     const ligne = document.createElement('div');
     ligne.className = 'ligne-joueur' + (j.vuA === t ? '' : ' absent');

@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#14161a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="pwa/icone-192.png">
-<link rel="stylesheet" href="carte/style.css?v=19">
+<link rel="stylesheet" href="carte/style.css?v=20">
 </head>
 <body>
 
@@ -148,6 +148,12 @@
         <input type="checkbox" id="calqueConstructions"> mes constructions
         <i class="nb" id="nbConstructions"></i>
       </label>
+      <!-- Le bouton de rendu est colle a sa case : place sous la liste des
+           joueurs, il disparaissait des qu'il y avait du monde sur le serveur. -->
+      <div class="ligne-sync" id="ligneSync" hidden>
+        <button id="syncConstructions" class="principal" title="Relit ce que l'agent a releve en jeu et recalcule les tuiles du calque. Environ 15 min.">rendre mes constructions</button>
+        <span class="reel" id="etatSync"></span>
+      </div>
       <label class="case-calque">
         <input type="checkbox" id="calqueBases" checked> mes bases
         <i class="nb" id="nbBases"></i>
@@ -156,15 +162,16 @@
         <input type="checkbox" id="calqueJoueur" checked> ma position en direct
       </label>
       <div class="aide" id="etatJoueur"></div>
-      <div id="listeJoueurs"></div>
-      <div class="ligne-sync" id="ligneSync" hidden>
-        <button id="syncConstructions" title="Relire le releve de l'agent et rafraichir le calque">synchroniser</button>
-        <span class="reel" id="etatSync"></span>
-      </div>
       <div class="ligne-sync">
         <button id="exportHD" title="Enregistrer la vue courante en PNG, a la resolution native des tuiles">exporter en HD</button>
         <span class="reel" id="etatExport"></span>
       </div>
+      <!-- Repliable, et en dernier : un serveur plein, c'est des dizaines de
+           lignes. -->
+      <details id="blocJoueurs" hidden>
+        <summary id="resumeJoueurs">autres joueurs</summary>
+        <div id="listeJoueurs"></div>
+      </details>
     </div>
 
     <div class="bloc" id="blocLoot">
@@ -193,6 +200,6 @@
   </section>
 </div>
 
-<script type="module" src="carte/app.js?v=39"></script>
+<script type="module" src="carte/app.js?v=40"></script>
 </body>
 </html>
