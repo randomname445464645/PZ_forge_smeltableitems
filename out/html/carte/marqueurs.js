@@ -1,6 +1,6 @@
 // Chargement, filtrage, affichage et liste des marqueurs.
 //
-// markers.json contient 2508 entrees {x, y, z, cat, t, d}, en coordonnees
+// markers.json contient 2144 entrees {x, y, z, cat, t, d}, en coordonnees
 // MONDE (celles que le jeu affiche). Verifie contre rooms/marks.json de
 // pzmap2dzi : les rectangles de pieces tombent exactement sur les batiments,
 // et les marqueurs tombent dans les bonnes pieces.
@@ -36,17 +36,17 @@ export const CATEGORIES = [
 const FILTRES_DEFAUT = ['top', 'or', 'billets', 'valeur', 'armes'];
 
 // Les etiquettes se chevauchent vite dans les zones denses : on ne les affiche
-// en masse qu'a partir de 4 px par case. Les categories rares (197 marqueurs en
+// en masse qu'a partir de 4 px par case. Les categories rares (208 marqueurs en
 // tout) restent nommees bien plus tot, c'est le cas ou on veut lire le nom.
 const ZOOM_ETIQUETTES = 2;
 const ZOOM_ETIQUETTES_RARES = -1;
 const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 
 // Priorite de dessin. L'ordre de CATEGORIES va du plus rare au plus courant :
-// 'top' (24 marqueurs), 'or' (73), 'billets' (100)... 'labo' (77). On s'en sert
+// 'top' (24 marqueurs), 'or' (86), 'billets' (98)... 'labo' (76). On s'en sert
 // comme z-index.
 //
-// Necessaire parce que 60 positions portent plusieurs marqueurs exactement aux
+// Necessaire parce que 72 positions portent plusieurs marqueurs exactement aux
 // memes coordonnees, dont 109 paires or + valeur et 21 billets + valeur.
 // Sans priorite c'est l'ordre du fichier qui tranche, et 'valeur' (155
 // entrees) y arrive apres, donc masque systematiquement la categorie rare.
@@ -54,7 +54,7 @@ const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 // disparaissait sous la pastille de la piece.
 const PRIORITE = new Map(CATEGORIES.map((c, i) => [c.cle, CATEGORIES.length - i]));
 
-// Doublons de position. 60 endroits portent plusieurs marqueurs aux memes
+// Doublons de position. 72 endroits portent plusieurs marqueurs aux memes
 // coordonnees exactes : on les ecarte lateralement et on pose derriere eux une
 // boite noire translucide, pour qu'on voie d'un coup d'oeil qu'il y en a
 // plusieurs et lesquels.
@@ -210,16 +210,26 @@ function remplirBulle(m, el) {
   sous.textContent = `${m.d || ''}${m.d ? ' · ' : ''}x=${m.x} y=${m.y} z=${m.z}`;
   b.appendChild(sous);
 
-  // Combien on peut esperer trouver en vidant la piece, calcule par
-  // extraire-marqueurs.py depuis les meubles REELLEMENT presents. Seules les
-  // pastilles billets, or et valeur le portent : ce sont celles qui promettent
-  // quelque chose de precis.
-  if (m.n) {
-    const quoi = { billets: 'billets', or: 'objets en or', valeur: 'objets de valeur' }[m.cat] || 'objets';
+  // Ce que la pastille promet, verifie par extraire-marqueurs.py depuis les
+  // meubles REELLEMENT presents : combien on peut esperer trouver en vidant la
+  // piece, ou pour une station-service, la distance a la pompe.
+  const QUOI = {
+    billets: 'billets', or: 'objets en or', valeur: 'objets de valeur',
+    armes: 'armes ou munitions', medical: 'objets de soin',
+    outils: 'outils ou materiaux', bouffe: 'aliments ou boissons',
+    labo: 'tirages dans les tables de laboratoire',
+  };
+  let attendu = '';
+  if (m.pompe !== undefined) {
+    attendu = m.pompe === 0 ? 'pompe a essence sur place' : `pompe a essence a ${m.pompe} cases`;
+  } else if (m.n) {
     const n = m.n >= 10 ? Math.round(m.n) : m.n;
+    attendu = `~${n} ${QUOI[m.cat] || 'objets'} en vidant la piece (estimation)`;
+  }
+  if (attendu) {
     const att = document.createElement('div');
     att.className = 'mq-bulle-attendu';
-    att.textContent = `~${n} ${quoi} en vidant la piece (estimation)`;
+    att.textContent = attendu;
     b.appendChild(att);
   }
 
@@ -293,7 +303,7 @@ function creerElement(index, m) {
   el.className = 'mq mq-' + m.cat;
   el.dataset.index = index;
   // Remplie au survol et pas ici : la table de loot arrive apres les
-  // marqueurs, et construire 2508 bulles d'avance ne sert a rien.
+  // marqueurs, et construire 2144 bulles d'avance ne sert a rien.
   el.addEventListener('mouseenter', () => remplirBulle(m, el));
   el.addEventListener('mouseleave', cacherBulleBientot);
   // Plus la categorie est rare, plus elle passe devant.

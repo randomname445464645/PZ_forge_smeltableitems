@@ -11,6 +11,9 @@ import glob
 import os
 import re
 
+# Tuiles de pompe a essence (propriete fuelAmount), remplies au chargement.
+POMPES = set()
+
 _NOM = re.compile(r'^\s*//\s*(\S+)\s*$')
 _PROP = re.compile(r'^\s*(\w+)\s*=\s*(.*?)\s*$')
 
@@ -67,6 +70,8 @@ def lire_binaire(chemin):
                 props[k] = chaine()
             if 'container' in props:
                 conteneurs['%s_%d' % (nom, i)] = props['container'] or '?'
+            if 'fuelAmount' in props:
+                POMPES.add('%s_%d' % (nom, i))
     return conteneurs
 
 
@@ -107,4 +112,6 @@ def charger(pz_root, dossiers_mods=()):
                 p = _PROP.match(ligne)
                 if p and p.group(1) == 'container':
                     conteneurs[nom] = p.group(2) or '?'
+                if p and p.group(1) == 'fuelAmount':
+                    POMPES.add(nom)
     return conteneurs

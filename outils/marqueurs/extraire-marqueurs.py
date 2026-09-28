@@ -188,6 +188,15 @@ PIECES_TOP = {
 # ~2 lingots, le plus gros gisement du jeu.
 SEUIL_ESPERANCE = 1.0
 
+# Depuis le 28/09 (bis), la regle vaut pour TOUTES les categories : armes,
+# medical, outils, bouffe, labo doivent aussi contenir ce qu'elles promettent
+# (definitions dans verification.CLASSES). Sauf l'essence : aucune des 138
+# pieces de station-service ne donne un seul bidon, leur valeur est la pompe
+# devant. Une station est gardee si une pompe (propriete fuelAmount) est a
+# moins de RAYON_POMPE cases. Mesure : 97 stations sur 138 en ont une a moins
+# de 30 cases, puis quasiment rien entre 30 et 90.
+RAYON_POMPE = 30
+
 FORMAT_EXTRAIT = re.compile(r'^[A-Za-z0-9_]+ · \d+x\d+ · ')
 
 
@@ -253,15 +262,21 @@ def extraire(nom_carte, chemin, libelle, verif, bilan):
                 'd': '%s · %dx%d · %s' % (nom, w, ht, libelle),
             }
             if info:
-                if info[0] == 'valeur' and attendus['valeur'] < SEUIL_ESPERANCE:
-                    # "banques, bijoux" promet de la valeur. Les 21 pieces
-                    # 'bank' des cartes n'en ont aucune : le jeu n'a pas de
-                    # table pour elles, guichets et bureaux tombent sur la
-                    # table generique, du materiel de bureau.
-                    bilan['valeur sans billets, or ni bijou'] += 1
+                c = info[0]
+                if c == 'essence':
+                    d = verif.pompe_proche(nom_carte, cx, cy, r, RAYON_POMPE)
+                    if d is None:
+                        bilan['essence sans pompe a %d cases' % RAYON_POMPE] += 1
+                    else:
+                        marqueurs.append(dict(base, cat=c, t=info[1], pompe=d))
+                        bilan['gardees'] += 1
+                elif attendus[c] < SEUIL_ESPERANCE:
+                    # Exemple : les 21 pieces 'bank' n'ont rien de precieux,
+                    # le jeu n'a pas de table pour elles et leurs meubles
+                    # tombent sur la table generique, du materiel de bureau.
+                    bilan['%s : rien de la categorie' % c] += 1
                 else:
-                    extra = {'n': round(attendus['valeur'], 1)} if info[0] == 'valeur' else {}
-                    marqueurs.append(dict(base, cat=info[0], t=info[1], **extra))
+                    marqueurs.append(dict(base, cat=c, t=info[1], n=round(attendus[c], 1)))
                     bilan['gardees'] += 1
             if rare:
                 titre = info[1] if info else LIBELLES_RARES[nom]
@@ -352,7 +367,12 @@ def verifier_manuel(k, verif):
     types = verif.types_meubles(nom_carte, cx, cy, r)
     if not verif.a_du_loot(piece, types):
         return False, 'piece %s sans meuble a loot' % piece
-    if k['cat'] in ('billets', 'or', 'valeur'):
+    if k['cat'] == 'essence':
+        d = verif.pompe_proche(nom_carte, cx, cy, r, RAYON_POMPE)
+        if d is None:
+            return False, 'piece %s : pas de pompe a %d cases' % (piece, RAYON_POMPE)
+        k['pompe'] = d
+    elif k['cat'] != 'top':
         attendus = verif.esperance(piece, types)
         if attendus[k['cat']] < SEUIL_ESPERANCE:
             return False, 'piece %s : meubles %s, %.2f %s attendus' % (

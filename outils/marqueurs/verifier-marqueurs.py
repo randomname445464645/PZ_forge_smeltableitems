@@ -36,7 +36,8 @@ MARQUEURS = os.path.join(PROJET, 'out', 'html', 'markers.json')
 sys.path.insert(0, os.path.join(PROJET, 'pzmap2dzi'))
 sys.path.insert(0, RACINE)
 
-SEUIL_ESPERANCE = 1.0   # meme regle que extraire-marqueurs.py
+SEUIL_ESPERANCE = 1.0   # memes regles que extraire-marqueurs.py
+RAYON_POMPE = 30
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +82,12 @@ def main():
             continue
         e = verif.esperance(piece, types)
         info.update({'attendus': {k: round(v, 2) for k, v in e.items()}})
-        if m['cat'] in e and e[m['cat']] < SEUIL_ESPERANCE:
+        if m['cat'] == 'essence':
+            if verif.pompe_proche(nom, cx, cy, r, RAYON_POMPE) is None:
+                rapport.append((i, 'sans-contenu', 'pas de pompe', info))
+            else:
+                rapport.append((i, 'ok', '', info))
+        elif m['cat'] in e and e[m['cat']] < SEUIL_ESPERANCE:
             rapport.append((i, 'sans-contenu', 'rien de la categorie', info))
         elif False:
             rapport.append((i, 'sans-contenu', "pas d'or", info))
