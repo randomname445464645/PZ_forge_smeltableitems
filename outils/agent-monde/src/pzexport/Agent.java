@@ -9,7 +9,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -48,12 +51,14 @@ import zombie.util.list.PZArrayList;
  *                          qui en contiennent
  *     position=<ms>        intervalle d'ecriture de la position du joueur,
  *                          defaut 1000, 0 pour ne pas l'ecrire
+ *     journal=0            n'enregistre pas les deplacements (voir Journal) ;
+ *                          par defaut ils sont notes dans traces/AAAA-MM-JJ.ndjson
  *
  * POSITION DU JOUEUR
  *     Un second thread ecrit position.json a cote du fichier de sortie :
  *         {"x":..,"y":..,"z":..,"a":angle,"v":0|1,"m":0|1,"t":horodatage_ms}
  *     v = en vehicule, m = mort. S'y ajoute "autres", les autres joueurs
- *     connus du client (voir autres()). Ecriture dans un .tmp puis renommage
+ *     connus du client (voir lireAutres()). Ecriture dans un .tmp puis renommage
  *     atomique : le serveur de la carte ne lit jamais un fichier a moitie
  *     ecrit. Ce thread est separe du balayage, qui peut prendre plusieurs
  *     secondes sur une grande zone chargee ; la position, elle, doit suivre.
@@ -69,6 +74,7 @@ public final class Agent {
     private static String sortie = DEFAUT_SORTIE;
     private static boolean tout = false;
     private static long periodePositionMs = 1000L;
+    private static boolean journalActif = true;
 
     // Signature de la derniere version vue de chaque case, pour n'ecrire que
     // ce qui a change. Cle = (x, y, z) empaquetes, valeur = hachage du contenu.
@@ -111,6 +117,7 @@ public final class Agent {
                     catch (NumberFormatException ignore) { }
                 }
                 case "sortie" -> sortie = val;
+                case "journal" -> journalActif = !"0".equals(val) && !"false".equalsIgnoreCase(val);
                 case "position" -> {
                     try { periodePositionMs = Math.max(0L, Long.parseLong(val)); }
                     catch (NumberFormatException ignore) { }
@@ -251,7 +258,10 @@ public final class Agent {
     private static void bouclePosition() {
         Path fin = Paths.get(sortie).resolveSibling("position.json");
         Path tmp = Paths.get(sortie).resolveSibling("position.json.tmp");
-        int erreurs = 0;
+        Journal journal = journalActif
+                ? new Journal(Paths.get(sortie).resolveSibling("traces"), ZoneId.systemDefault())
+                : null;
+        int erreurs = 0, erreursJournal = 0;
         while (true) {
             try {
                 Thread.sleep(periodePositionMs);
@@ -259,15 +269,36 @@ public final class Agent {
                 if (j == null) continue;            // menu, chargement
                 float x = j.getX(), y = j.getY(), z = j.getZ();
                 if (!Float.isFinite(x) || !Float.isFinite(y) || x <= 0f || y <= 0f) continue;
+                long t = System.currentTimeMillis();
+                boolean enVehicule = j.getVehicle() != null;
+                List<Autre> autres = lireAutres(j);
                 String json = String.format(Locale.ROOT,
                         "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"a\":%.3f,\"v\":%d,\"m\":%d,\"t\":%d,\"autres\":%s}",
                         x, y, z, j.getDirectionAngleRadians(),
-                        j.getVehicle() != null ? 1 : 0, j.isDead() ? 1 : 0,
-                        System.currentTimeMillis(), autres(j));
+                        enVehicule ? 1 : 0, j.isDead() ? 1 : 0, t, json(autres));
                 Files.writeString(tmp, json, StandardCharsets.UTF_8);
                 Files.move(tmp, fin, StandardCopyOption.REPLACE_EXISTING,
                         StandardCopyOption.ATOMIC_MOVE);
                 erreurs = 0;
+
+                // Journal : un souci d'ecriture ne doit jamais empecher la
+                // position en direct, d'ou son propre try.
+                if (journal != null) {
+                    try {
+                        journal.noter("moi", j.getUsername(), x, y, z, enVehicule, t);
+                        for (Autre o : autres) {
+                            // Le pseudo est stable d'une session a l'autre,
+                            // l'identifiant reseau non : il sert de cle.
+                            String cle = o.nom() != null ? "u:" + o.nom() : "j" + o.id();
+                            journal.noter(cle, o.nom(), o.x(), o.y(),
+                                    o.z() != null ? o.z() : 0f, o.v(), t);
+                        }
+                    } catch (Throwable e) {
+                        if (erreursJournal++ % 60 == 0) {
+                            System.out.println("[pz-export] journal ignore : " + e);
+                        }
+                    }
+                }
             } catch (InterruptedException e) {
                 return;
             } catch (Throwable e) {
@@ -299,12 +330,14 @@ public final class Agent {
      * copie d'abord (toArray), et une lecture ratee est simplement refaite a la
      * seconde suivante.
      */
-    private static String autres(IsoPlayer moi) {
-        StringBuilder sb = new StringBuilder(256).append('[');
+    /** Un autre joueur tel que lu dans le jeu. z et a absents pour un lointain. */
+    private record Autre(short id, String nom, float x, float y, Float z, Float a,
+                         boolean v, boolean m, boolean proche) { }
+
+    private static List<Autre> lireAutres(IsoPlayer moi) {
+        List<Autre> l = new ArrayList<>();
         Set<Short> vus = new HashSet<>();
-        short monId = moi.getOnlineID();
-        vus.add(monId);
-        int n = 0;
+        vus.add(moi.getOnlineID());
         try {
             for (Object o : GameClient.IDToPlayerMap.values().toArray()) {
                 if (!(o instanceof IsoPlayer p)) continue;
@@ -312,12 +345,8 @@ public final class Agent {
                 float x = p.getX(), y = p.getY();
                 if (!Float.isFinite(x) || !Float.isFinite(y) || x <= 0f || y <= 0f) continue;
                 if (!vus.add(p.getOnlineID())) continue;
-                if (n++ > 0) sb.append(',');
-                sb.append(String.format(Locale.ROOT,
-                        "{\"id\":%d,\"n\":%s,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"a\":%.3f,\"v\":%d,\"m\":%d,\"p\":1}",
-                        p.getOnlineID(), chaine(p.getUsername()), x, y, p.getZ(),
-                        p.getDirectionAngleRadians(),
-                        p.getVehicle() != null ? 1 : 0, p.isDead() ? 1 : 0));
+                l.add(new Autre(p.getOnlineID(), p.getUsername(), x, y, p.getZ(),
+                        p.getDirectionAngleRadians(), p.getVehicle() != null, p.isDead(), true));
             }
         } catch (Throwable e) {
             // liste modifiee pendant la copie : on refera a la prochaine seconde
@@ -331,20 +360,38 @@ public final class Agent {
                     float x = r.getX(), y = r.getY();
                     if (!Float.isFinite(x) || !Float.isFinite(y) || x <= 0f || y <= 0f) continue;
                     if (!vus.add(r.getOnlineID())) continue;
-                    if (n++ > 0) sb.append(',');
-                    sb.append(String.format(Locale.ROOT,
-                            "{\"id\":%d,\"n\":%s,\"x\":%.2f,\"y\":%.2f,\"p\":0}",
-                            r.getOnlineID(), chaine(r.hasFullData() ? r.getUsername() : null), x, y));
+                    l.add(new Autre(r.getOnlineID(), r.hasFullData() ? r.getUsername() : null,
+                            x, y, null, null, false, false, false));
                 }
             }
         } catch (Throwable e) {
             // idem
         }
+        return l;
+    }
+
+    /** Les autres joueurs en tableau JSON, pour position.json. */
+    private static String json(List<Autre> l) {
+        StringBuilder sb = new StringBuilder(256).append('[');
+        for (int i = 0; i < l.size(); i++) {
+            Autre o = l.get(i);
+            if (i > 0) sb.append(',');
+            if (o.proche()) {
+                sb.append(String.format(Locale.ROOT,
+                        "{\"id\":%d,\"n\":%s,\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"a\":%.3f,\"v\":%d,\"m\":%d,\"p\":1}",
+                        o.id(), chaine(o.nom()), o.x(), o.y(), o.z(), o.a(),
+                        o.v() ? 1 : 0, o.m() ? 1 : 0));
+            } else {
+                sb.append(String.format(Locale.ROOT,
+                        "{\"id\":%d,\"n\":%s,\"x\":%.2f,\"y\":%.2f,\"p\":0}",
+                        o.id(), chaine(o.nom()), o.x(), o.y()));
+            }
+        }
         return sb.append(']').toString();
     }
 
     /** Chaine JSON complete, ou null. Un pseudo peut contenir n'importe quoi. */
-    private static String chaine(String s) {
+    static String chaine(String s) {
         if (s == null) return "null";
         StringBuilder b = new StringBuilder(s.length() + 2).append('"');
         for (int i = 0; i < s.length(); i++) {

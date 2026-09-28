@@ -278,6 +278,37 @@ coordonnées du monde est donc `(cos a, sin a)`.
 Option de l'agent : `position=<ms>`, défaut 1000, `0` pour désactiver, 200 au
 minimum.
 
+## L'historique des déplacements (onglet Traces)
+
+L'agent note les déplacements de chacun (toi et les autres joueurs connus de
+ton client) dans `~/Zomboid/pz-export/traces/AAAA-MM-JJ.ndjson`, un fichier
+par jour, classe `Journal`. Il n'écrit pas un point par seconde, seulement :
+
+- tous les 2 cases parcourues ;
+- à chaque changement d'étage, ou quand on monte ou descend d'un véhicule ;
+- une fois par minute à l'arrêt, ce qui permet de mesurer les pauses.
+
+Mesuré sur une heure simulée à deux joueurs, passée à la vraie classe : 3660
+positions réduites à 686 points, 56 Ko. Les autres joueurs sont identifiés par
+leur pseudo, stable d'une session à l'autre, pas par leur identifiant réseau.
+Le dossier `traces/` est un sous-dossier : `convertir.py` ne lit que les
+`.ndjson` du dossier lui-même et ne le confond pas avec un relevé.
+
+Onglet **Traces** de la carte :
+
+- choix du jour et des joueurs, plage horaire avec deux curseurs ;
+- tracé plein à pied, pointillé en véhicule, coupé quand il manque des
+  données plus de 2 min 30 (jeu fermé) ou en cas de saut (téléportation) ;
+- **arrêts** de 3 min ou plus dans un rayon de 8 cases, avec leur durée ;
+- statistiques : distance à pied et en véhicule, temps en mouvement, arrêts ;
+- **rejouer** en accéléré (x30, x120, x600) ;
+- le jour en cours se recharge toutes les 30 s pendant que tu joues ;
+- « garder à l'écran » pour voir les traces depuis les autres onglets.
+
+Rien n'est supprimé automatiquement. Pour faire le ménage, effacer les
+fichiers de jours dans `traces/`. Option de l'agent : `journal=0` pour ne
+rien enregistrer.
+
 Un agent Java ne se charge qu'au lancement du jeu : après une mise à jour du
 jar, il faut relancer Project Zomboid. Le jar se remplace par renommage
 (`mv`), jamais en réécrivant le fichier : le jeu en cours garde l'ancien ouvert

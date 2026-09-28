@@ -6,6 +6,10 @@ La carte est statique a deux exceptions pres :
     pour rafraichir le calque des constructions sans passer par un terminal ;
   - GET /api/position renvoie la position du joueur, que l'agent ecrit chaque
     seconde dans ~/Zomboid/pz-export/position.json. Lecture seule.
+  - GET /api/traces liste les jours de deplacements enregistres par l'agent
+    (~/Zomboid/pz-export/traces/AAAA-MM-JJ.ndjson), et
+    GET /api/traces?jour=AAAA-MM-JJ renvoie les points d'un jour. Lecture
+    seule.
 
 Rien d'autre n'a besoin de flask ni de waitress, la bibliotheque standard
 suffit.
@@ -16,6 +20,7 @@ place et intact ; il n'est simplement plus necessaire pour la carte.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -56,6 +61,60 @@ def lire_position():
     t = pos.get('t')
     age = (time.time() * 1000 - t) / 1000 if isinstance(t, (int, float)) else None
     return 200, {'ok': True, 'age': age, **pos}
+
+
+# --- traces des deplacements -------------------------------------------------
+
+TRACES = os.environ.get('PZCARTE_TRACES') or os.path.expanduser('~/Zomboid/pz-export/traces')
+# Le jour arrive de la requete : seul ce format exact est accepte, ce qui
+# interdit de remonter dans l'arborescence avec des ../
+FORMAT_JOUR = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+
+def lister_jours():
+    """Jours enregistres, du plus recent au plus ancien, avec leur taille.
+
+    Pas de comptage des points ici : il faudrait relire chaque fichier, et
+    des mois de jeu en feraient beaucoup. La taille suffit a choisir.
+    """
+    if not os.path.isdir(TRACES):
+        return 200, {'ok': True, 'jours': []}
+    jours = []
+    for f in os.listdir(TRACES):
+        j = f[:-7] if f.endswith('.ndjson') else ''
+        if FORMAT_JOUR.match(j):
+            jours.append({'jour': j, 'octets': os.path.getsize(os.path.join(TRACES, f))})
+    jours.sort(key=lambda d: d['jour'], reverse=True)
+    return 200, {'ok': True, 'jours': jours}
+
+
+def lire_jour(jour):
+    """Points d'un jour, en tableaux compacts [t, joueur, x, y, z, v].
+
+    Une ligne illisible est sautee : l'agent peut etre en train d'ecrire la
+    derniere au moment de la lecture.
+    """
+    if not FORMAT_JOUR.match(jour or ''):
+        return 400, {'ok': False, 'erreur': 'jour attendu au format AAAA-MM-JJ'}
+    chemin = os.path.join(TRACES, jour + '.ndjson')
+    if not os.path.isfile(chemin):
+        return 404, {'ok': False, 'erreur': 'aucun deplacement enregistre ce jour-la'}
+    joueurs, index, points, sautees = [], {}, [], 0
+    with open(chemin, encoding='utf-8', errors='replace') as f:
+        for ligne in f:
+            try:
+                d = json.loads(ligne)
+                cle = d['id']
+                if cle not in index:
+                    index[cle] = len(joueurs)
+                    joueurs.append({'id': cle, 'n': d.get('n')})
+                elif d.get('n') and not joueurs[index[cle]]['n']:
+                    joueurs[index[cle]]['n'] = d['n']
+                points.append([d['t'], index[cle], d['x'], d['y'], d.get('z', 0), d.get('v', 0)])
+            except (ValueError, KeyError, TypeError):
+                sautees += 1
+    return 200, {'ok': True, 'jour': jour, 'joueurs': joueurs, 'points': points,
+                 'lignes_sautees': sautees}
 
 
 # --- synchronisation du releve de l'agent -----------------------------------
@@ -140,6 +199,15 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
+        if self.path.split('?', 1)[0] == '/api/traces':
+            if self.headers.get('X-Carte') != 'traces':
+                self.send_error(403, 'en-tete X-Carte manquant')
+                return
+            from urllib.parse import parse_qs, urlsplit
+            q = parse_qs(urlsplit(self.path).query)
+            jour = (q.get('jour') or [None])[0]
+            self.repondre_json(*(lire_jour(jour) if jour else lister_jours()))
+            return
         if self.path.split('?', 1)[0] == '/api/position':
             # Meme garde que /api/sync : sans l'en-tete, une page d'une autre
             # origine ne peut pas lire ta position (il faudrait une requete

@@ -29,6 +29,7 @@ const COQUILLE = [
   '/carte/bases.js',
   '/carte/itineraire.js',
   '/carte/joueur.js',
+  '/carte/historique.js',
   '/carte/loot-pieces.json',
   '/markers.json',
   '/favicon.ico',

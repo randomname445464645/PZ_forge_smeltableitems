@@ -9,13 +9,14 @@
 <meta name="theme-color" content="#14161a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="pwa/icone-192.png">
-<link rel="stylesheet" href="carte/style.css?v=18">
+<link rel="stylesheet" href="carte/style.css?v=19">
 </head>
 <body>
 
 <div id="carte">
   <div id="plan"></div>
   <canvas id="rues"></canvas>
+  <canvas id="historique"></canvas>
   <canvas id="trace"></canvas>
   <div id="marqueurs"></div>
   <div id="bases"></div>
@@ -40,6 +41,7 @@
     <button data-onglet="lieux" class="actif">Lieux</button>
     <button data-onglet="bases">Bases</button>
     <button data-onglet="trajet">Trajet</button>
+    <button data-onglet="traces">Traces</button>
     <button data-onglet="reglages">Calques</button>
   </nav>
 
@@ -102,6 +104,40 @@
     <div id="listeEtapes"></div>
   </section>
 
+  <!-- TRACES ----------------------------------------------------------- -->
+  <section class="volet" data-volet="traces" hidden>
+    <div class="bloc">
+      <div class="ligne-boutons" style="margin-top:0">
+        <select id="traceJour"><option value="">chargement...</option></select>
+        <button id="traceRafraichir" title="Relire la liste des jours">&#8635;</button>
+      </div>
+      <div id="traceJoueurs"></div>
+      <div class="ligne-plage">
+        <span>de</span><input type="range" id="traceDebut" min="0" max="1000" value="0">
+        <b id="traceDebutTxt"></b>
+      </div>
+      <div class="ligne-plage">
+        <span>a</span><input type="range" id="traceFin" min="0" max="1000" value="1000">
+        <b id="traceFinTxt"></b>
+      </div>
+      <div class="ligne-boutons">
+        <button id="traceCadrer">cadrer</button>
+        <button id="traceLire" class="principal">rejouer</button>
+        <select id="traceVitesse" title="Vitesse de relecture">
+          <option value="30">x30</option>
+          <option value="120" selected>x120</option>
+          <option value="600">x600</option>
+        </select>
+        <button id="traceArreter">arreter</button>
+      </div>
+      <label class="case-calque">
+        <input type="checkbox" id="traceEpingler"> garder a l'ecran hors de cet onglet
+      </label>
+      <p class="aide" id="traceAide"></p>
+    </div>
+    <div id="traceStats"></div>
+  </section>
+
   <!-- CALQUES ---------------------------------------------------------- -->
   <section class="volet" data-volet="reglages" hidden>
     <div class="bloc">
@@ -157,6 +193,6 @@
   </section>
 </div>
 
-<script type="module" src="carte/app.js?v=38"></script>
+<script type="module" src="carte/app.js?v=39"></script>
 </body>
 </html>

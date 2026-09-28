@@ -16,6 +16,7 @@ import {
 import * as bases from './bases.js';
 import * as trajet from './itineraire.js';
 import * as joueur from './joueur.js';
+import * as histo from './historique.js';
 import { initRues, basculerRues, dessinerRues } from './rues.js';
 import * as loot from './loot.js';
 import { exporterVue } from './exporter.js';
@@ -60,6 +61,7 @@ function demanderRendu(majListeAussi = false) {
 function rendre() {
   dessinerTuiles();
   dessinerRues();
+  histo.dessinerHistorique();
   trajet.dessinerItineraire();
   dessinerMarqueurs();
   bases.dessinerBases();
@@ -719,6 +721,10 @@ function initOnglets() {
     if (nom === 'lieux') majListe();
     if (nom === 'bases') majPanneauBases();
     if (nom === 'trajet') majPanneauTrajet();
+    // Les traces ne se dessinent que quand on les regarde, ou si on les a
+    // epinglees : sinon elles encombreraient la carte en permanence.
+    histo.afficher(nom === 'traces' || $('traceEpingler').checked);
+    if (nom === 'traces') ouvrirTraces();
   };
   for (const b of boutons) b.addEventListener('click', () => montrer(b.dataset.onglet));
   let voulu = 'lieux';
@@ -1119,6 +1125,171 @@ function initJoueurPanneau() {
   });
 }
 
+// --- traces (historique des deplacements) ------------------------------------
+
+async function ouvrirTraces() {
+  if (histo.etat.jours.length && histo.etat.jour) { majTracesUI(); return; }
+  const jours = await histo.chargerJours();
+  remplirJours(jours);
+  if (jours.length) {
+    await histo.chargerJour(jours[0].jour);
+    histo.cadrer();
+  }
+  majTracesUI();
+}
+
+function remplirJours(jours) {
+  const sel = $('traceJour');
+  sel.textContent = '';
+  if (!jours.length) {
+    sel.appendChild(new Option('aucun jour enregistre', ''));
+    return;
+  }
+  const auj = histo.aujourdhui();
+  for (const j of jours) {
+    const d = new Date(j.jour + 'T12:00:00');
+    const libelle = (j.jour === auj ? "aujourd'hui, " : '')
+      + d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
+      + ' · ' + (j.octets < 1e6 ? Math.round(j.octets / 1024) + ' Ko' : (j.octets / 1e6).toFixed(1) + ' Mo');
+    sel.appendChild(new Option(libelle, j.jour));
+  }
+  if (histo.etat.jour) sel.value = histo.etat.jour;
+}
+
+// Curseur 0..1000 <-> instant dans la journee affichee.
+function versT(v) {
+  const e = histo.etat;
+  return e.tMin + (e.tMax - e.tMin) * (v / 1000);
+}
+function versCurseur(t) {
+  const e = histo.etat;
+  return e.tMax > e.tMin ? Math.round(1000 * (t - e.tMin) / (e.tMax - e.tMin)) : 0;
+}
+
+function majTracesUI() {
+  const e = histo.etat;
+  $('traceAide').textContent = e.erreur
+    || (e.jour ? 'Trait plein a pied, pointille en vehicule. Un cercle marque un arret de plus de 3 min.' : '');
+
+  // Joueurs du jour, avec leur couleur.
+  const hote = $('traceJoueurs');
+  const sig = e.joueurs.map(j => j.id + (j.visible ? '1' : '0')).join('|') + e.jour;
+  if (hote.dataset.sig !== sig) {
+    hote.dataset.sig = sig;
+    hote.textContent = '';
+    for (const j of e.joueurs) {
+      const l = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = j.visible;
+      // On retrouve le joueur par son id AU MOMENT du clic. Le jour en cours
+      // se recharge toutes les 30 s et recree les fiches : une fermeture sur
+      // 'j' modifierait une fiche remplacee, et cocher ne ferait plus rien.
+      const id = j.id;
+      cb.addEventListener('change', () => {
+        const actuel = e.joueurs.find(x => x.id === id);
+        if (actuel) actuel.visible = cb.checked;
+        majTracesUI();
+        demanderRendu();
+      });
+      const t = document.createElement('i');
+      t.className = 'teinte';
+      t.style.background = j.couleur;
+      l.appendChild(cb);
+      l.appendChild(t);
+      l.appendChild(document.createTextNode(j.id === 'moi' ? 'toi' : (j.n || j.id)));
+      hote.appendChild(l);
+    }
+  }
+
+  if (e.tMin !== null) {
+    $('traceDebut').value = versCurseur(e.debut);
+    $('traceFin').value = versCurseur(e.fin);
+    $('traceDebutTxt').textContent = histo.heure(e.debut);
+    $('traceFinTxt').textContent = histo.heure(e.lecture ?? e.fin);
+  }
+  $('traceLire').textContent = e.lecture !== null ? 'reprendre' : 'rejouer';
+
+  // Statistiques des joueurs coches, sur la plage.
+  const st = $('traceStats');
+  st.textContent = '';
+  for (const j of e.joueurs) {
+    if (!j.visible) continue;
+    const s = histo.stats(j);
+    const bloc = document.createElement('div');
+    bloc.className = 'stat-joueur';
+    const h = document.createElement('h4');
+    const t = document.createElement('i');
+    t.className = 'teinte';
+    t.style.cssText = `display:inline-block;width:14px;height:4px;border-radius:2px;background:${j.couleur}`;
+    h.appendChild(t);
+    h.appendChild(document.createTextNode(j.id === 'moi' ? 'toi' : (j.n || j.id)));
+    bloc.appendChild(h);
+    const lignes = s.points ? [
+      ['de', histo.heure(s.premier) + ' a ' + histo.heure(s.dernier)],
+      ['a pied', s.pied.toLocaleString('fr-FR') + ' cases'],
+      ['en vehicule', s.vehicule.toLocaleString('fr-FR') + ' cases'],
+      ['en mouvement', histo.duree(s.bouge)],
+      ['arrets de 3 min ou plus', String(s.arrets)],
+    ] : [['', 'aucun point sur cette plage']];
+    const table = document.createElement('table');
+    for (const [k, v] of lignes) {
+      const tr = document.createElement('tr');
+      const a = document.createElement('td'); a.textContent = k;
+      const b = document.createElement('td'); b.className = 'v'; b.textContent = v;
+      tr.appendChild(a); tr.appendChild(b);
+      table.appendChild(tr);
+    }
+    bloc.appendChild(table);
+    st.appendChild(bloc);
+  }
+}
+
+function initTracesPanneau() {
+  histo.initHistorique($('historique'), majTracesUI, () => demanderRendu());
+  $('traceJour').addEventListener('change', async function () {
+    if (!this.value) return;
+    histo.arreter();
+    await histo.chargerJour(this.value);
+    histo.cadrer();
+  });
+  $('traceRafraichir').addEventListener('click', async () => {
+    remplirJours(await histo.chargerJours());
+    if (histo.etat.jour) await histo.chargerJour(histo.etat.jour, true);
+  });
+  // Les deux curseurs ne peuvent pas se croiser.
+  $('traceDebut').addEventListener('input', function () {
+    const e = histo.etat;
+    if (e.tMin === null) return;
+    e.debut = Math.min(versT(+this.value), e.fin);
+    if (e.lecture !== null && e.lecture < e.debut) e.lecture = e.debut;
+    majTracesUI(); demanderRendu();
+  });
+  $('traceFin').addEventListener('input', function () {
+    const e = histo.etat;
+    if (e.tMin === null) return;
+    e.fin = Math.max(versT(+this.value), e.debut);
+    if (e.lecture !== null && e.lecture > e.fin) e.lecture = e.fin;
+    majTracesUI(); demanderRendu();
+  });
+  $('traceCadrer').addEventListener('click', () => histo.cadrer());
+  $('traceLire').addEventListener('click', () => histo.lire(+$('traceVitesse').value));
+  $('traceVitesse').addEventListener('change', function () { histo.etat.vitesse = +this.value; });
+  $('traceArreter').addEventListener('click', () => histo.arreter());
+  let epingle = false;
+  try { epingle = localStorage.getItem('pzcarte.traces.epingle') === '1'; } catch (e) {}
+  $('traceEpingler').checked = epingle;
+  $('traceEpingler').addEventListener('change', function () {
+    try { localStorage.setItem('pzcarte.traces.epingle', this.checked ? '1' : '0'); } catch (e) {}
+    const actif = document.querySelector('#onglets button.actif');
+    histo.afficher(this.checked || (actif && actif.dataset.onglet === 'traces'));
+    if (this.checked) ouvrirTraces();
+  });
+  // Epinglees depuis une session precedente : on charge tout de suite, quel
+  // que soit l'onglet ouvert.
+  if (epingle) ouvrirTraces();
+}
+
 // --- clic sur la carte -----------------------------------------------------
 
 function clicCarte(e) {
@@ -1177,6 +1348,7 @@ async function demarrer() {
   initBasesPanneau();
   initTrajetPanneau();
   initJoueurPanneau();
+  initTracesPanneau();
   allerOnglet = initOnglets();
   // Les deux panneaux ne sont rafraichis qu'a l'ouverture de leur onglet :
   // sans ce premier passage, le compteur de bases reste vide tant qu'on n'y
