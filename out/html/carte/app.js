@@ -15,6 +15,7 @@ import {
 } from './marqueurs.js';
 import * as bases from './bases.js';
 import * as trajet from './itineraire.js';
+import * as joueur from './joueur.js';
 import { initRues, basculerRues, dessinerRues } from './rues.js';
 import * as loot from './loot.js';
 import { exporterVue } from './exporter.js';
@@ -62,6 +63,7 @@ function rendre() {
   trajet.dessinerItineraire();
   dessinerMarqueurs();
   bases.dessinerBases();
+  joueur.dessinerJoueur();
   majHud();
 }
 
@@ -279,6 +281,10 @@ window.addEventListener('mousemove', e => {
     if (dx || dy) {
       glisse.bouge = true;
       glisseABouge = true;
+      // Suivre ET deplacer la carte a la main sont incompatibles : sans ca,
+      // la camera revient sur le joueur a chaque seconde, on ne peut plus
+      // regarder ailleurs.
+      if (joueur.etat.suivre) joueur.basculerSuivi(false);
       glisse.x = e.clientX; glisse.y = e.clientY;
       deplacer(dx, dy);
       demanderRendu(true);
@@ -345,6 +351,9 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') { deplacer(-pas, 0); demanderRendu(true); }
   else if (e.key === 'ArrowUp') { deplacer(0, pas); demanderRendu(true); }
   else if (e.key === 'ArrowDown') { deplacer(0, -pas); demanderRendu(true); }
+  else if (e.key === 'f' || e.key === 'F') {
+    if (!$('suivre').hidden) joueur.basculerSuivi();
+  }
   else if (e.key === 'v' || e.key === 'V') {
     const b = $('bascule');
     if (b && !b.hidden && !b.disabled) basculerMode(mode === 'iso' ? 'dessus' : 'iso');
@@ -1034,6 +1043,31 @@ function dureeTexte(s) {
   return Math.floor(s / 3600) + ' h ' + String(Math.floor((s % 3600) / 60)).padStart(2, '0');
 }
 
+// --- joueur en direct -------------------------------------------------------
+
+function majJoueurUI() {
+  const b = $('suivre');
+  // Le bouton n'apparait que si une position existe : sans agent dans le jeu,
+  // il n'y a personne a suivre.
+  b.hidden = !joueur.etat.actif || !joueur.etat.pos;
+  b.classList.toggle('actif', joueur.etat.suivre);
+  b.textContent = joueur.etat.suivre ? 'suivi actif' : 'me suivre';
+  $('etatJoueur').textContent = joueur.texteEtat();
+  $('calqueJoueur').checked = joueur.etat.actif;
+}
+
+function initJoueurPanneau() {
+  let actif = true;
+  try { actif = localStorage.getItem('pzcarte.joueur') !== '0'; } catch (e) {}
+  joueur.initJoueur($('joueurCalque'), majJoueurUI, () => demanderRendu());
+  joueur.activer(actif);
+  $('calqueJoueur').addEventListener('change', function () {
+    joueur.activer(this.checked);
+    try { localStorage.setItem('pzcarte.joueur', this.checked ? '1' : '0'); } catch (e) {}
+  });
+  $('suivre').addEventListener('click', () => joueur.basculerSuivi());
+}
+
 // --- clic sur la carte -----------------------------------------------------
 
 function clicCarte(e) {
@@ -1091,6 +1125,7 @@ async function demarrer() {
   initListe();
   initBasesPanneau();
   initTrajetPanneau();
+  initJoueurPanneau();
   allerOnglet = initOnglets();
   // Les deux panneaux ne sont rafraichis qu'a l'ouverture de leur onglet :
   // sans ce premier passage, le compteur de bases reste vide tant qu'on n'y

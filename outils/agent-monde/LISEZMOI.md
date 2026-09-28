@@ -214,6 +214,43 @@ Trois protections :
 Le convertisseur a besoin de Pillow, donc du python du `.venv` du projet. Le
 serveur le cherche là en priorité et retombe sur le python courant sinon.
 
+## Ta position en direct sur la carte
+
+L'agent a un second thread, `pz-export-position`, qui lit la position du
+joueur local chaque seconde et l'écrit dans `~/Zomboid/pz-export/position.json` :
+
+```json
+{"x":10712.46,"y":9503.50,"z":0.00,"a":-1.571,"v":1,"m":0,"t":1790601505666}
+```
+
+`v` = en véhicule, `m` = mort, `t` = heure de la lecture dans le jeu. Écriture
+dans un `.tmp` puis renommage atomique : le serveur ne lit jamais un fichier à
+moitié écrit. Extension `.json` et pas `.ndjson` : `convertir.py` lit tous les
+`.ndjson` du dossier et ne doit pas prendre la position pour un relevé.
+
+Le serveur de la carte la sert sur `GET /api/position` (en-tête `X-Carte:
+position` obligatoire, même garde que la synchro). La carte l'interroge chaque
+seconde tant que la position est fraîche, toutes les 5 s sinon.
+
+- **me suivre** (bouton en haut à droite, ou touche **F**) : la caméra suit le
+  joueur. Glisser la carte arrête le suivi, sinon on ne pourrait plus regarder
+  ailleurs.
+- Le déplacement est interpolé entre deux lectures : la pastille et la caméra
+  glissent au lieu de sauter chaque seconde, avec au plus une seconde de retard.
+- La flèche suit le **déplacement réel**, pas l'angle `a` fourni par le jeu,
+  dont la convention n'a pas pu être vérifiée en partie.
+- Au-delà de 6 s sans nouvelle position, la pastille s'éteint et le panneau
+  indique depuis quand : jeu fermé, menu, ou agent absent.
+- Onglet Calques, case « ma position en direct » pour tout couper.
+
+Option de l'agent : `position=<ms>`, défaut 1000, `0` pour désactiver, 200 au
+minimum.
+
+Un agent Java ne se charge qu'au lancement du jeu : après une mise à jour du
+jar, il faut relancer Project Zomboid. Le jar se remplace par renommage
+(`mv`), jamais en réécrivant le fichier : le jeu en cours garde l'ancien ouvert
+et continue sans erreur.
+
 ## Limites
 
 L'agent ne voit que la **zone chargée** autour de toi, bornée par

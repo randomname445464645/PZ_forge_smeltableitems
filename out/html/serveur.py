@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Serveur de la carte PZ together.
 
-La carte est statique a une exception pres : POST /api/sync relance le
-convertisseur du releve de l'agent d'export, pour rafraichir le calque des
-constructions sans passer par un terminal. Aucune donnee du jeu n'est lue ni
-ecrite par le serveur lui-meme, il ne fait qu'appeler un script fixe.
+La carte est statique a deux exceptions pres :
+  - POST /api/sync relance le convertisseur du releve de l'agent d'export,
+    pour rafraichir le calque des constructions sans passer par un terminal ;
+  - GET /api/position renvoie la position du joueur, que l'agent ecrit chaque
+    seconde dans ~/Zomboid/pz-export/position.json. Lecture seule.
 
 Rien d'autre n'a besoin de flask ni de waitress, la bibliotheque standard
 suffit.
@@ -28,6 +29,31 @@ RACINE = os.path.dirname(os.path.realpath(__file__))
 # Le code de la carte change a chaque retouche : jamais de cache.
 CACHE_LONG = ('.webp', '.png', '.jpg')
 SANS_CACHE = ('.html', '.js', '.css', '.json', '.dzi', '.webmanifest')
+
+
+# --- position du joueur -----------------------------------------------------
+
+POSITION = os.path.expanduser('~/Zomboid/pz-export/position.json')
+
+
+def lire_position():
+    """(code, reponse) : la derniere position ecrite par l'agent, et son age.
+
+    L'age vient de l'horodatage ecrit par l'agent, pas de la date du fichier :
+    c'est l'heure a laquelle la position a ete LUE dans le jeu. Au-dela de
+    quelques secondes, le jeu est ferme, en pause dans un menu, ou l'agent
+    n'est pas charge ; la carte l'affiche au lieu de suivre un fantome.
+    """
+    try:
+        with open(POSITION, encoding='utf-8') as f:
+            pos = json.load(f)
+    except FileNotFoundError:
+        return 404, {'ok': False, 'erreur': "aucune position : jeu jamais lance avec l'agent"}
+    except (OSError, ValueError) as e:
+        return 503, {'ok': False, 'erreur': 'position illisible : %s' % e}
+    t = pos.get('t')
+    age = (time.time() * 1000 - t) / 1000 if isinstance(t, (int, float)) else None
+    return 200, {'ok': True, 'age': age, **pos}
 
 
 # --- synchronisation du releve de l'agent -----------------------------------
@@ -112,6 +138,15 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
+        if self.path.split('?', 1)[0] == '/api/position':
+            # Meme garde que /api/sync : sans l'en-tete, une page d'une autre
+            # origine ne peut pas lire ta position (il faudrait une requete
+            # preliminaire, a laquelle le serveur ne repond pas).
+            if self.headers.get('X-Carte') != 'position':
+                self.send_error(403, 'en-tete X-Carte manquant')
+                return
+            self.repondre_json(*lire_position())
+            return
         if self.path.split('?', 1)[0] == '/api/sync':
             if self.headers.get('X-Carte') != 'sync':
                 self.send_error(403, 'en-tete X-Carte manquant')

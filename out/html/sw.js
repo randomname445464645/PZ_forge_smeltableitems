@@ -10,7 +10,7 @@
 // s'ouvrir instantanement et de fonctionner meme si le serveur local n'a pas
 // encore demarre.
 
-const VERSION = 'carte-pz-v4';   // v4 : tout passe par le reseau d'abord
+const VERSION = 'carte-pz-v5';   // v5 : /api/ jamais en cache
 
 // Chemins de la coquille. Les parametres ?v= des balises sont conserves tels
 // quels : c'est l'URL complete qui sert de cle de cache.
@@ -28,6 +28,7 @@ const COQUILLE = [
   '/carte/constructions.js',
   '/carte/bases.js',
   '/carte/itineraire.js',
+  '/carte/joueur.js',
   '/carte/loot-pieces.json',
   '/markers.json',
   '/favicon.ico',
@@ -64,6 +65,10 @@ self.addEventListener('fetch', e => {
 
   // Les tuiles et tout ce qui vient du rendu : reseau direct, jamais de cache.
   if (url.pathname.startsWith('/map_data/')) return;
+  // L'API non plus : /api/position change chaque seconde. Mise en cache, elle
+  // remplirait le Cache Storage et, serveur eteint, resservirait une vieille
+  // position avec un age qui la ferait passer pour du direct.
+  if (url.pathname.startsWith('/api/')) return;
 
   // TOUTE la coquille passe par le reseau d'abord, avec repli sur le cache
   // seulement si le serveur ne repond pas.

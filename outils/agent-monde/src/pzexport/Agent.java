@@ -3,12 +3,16 @@ package pzexport;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.lang.instrument.Instrumentation;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
+import zombie.characters.IsoPlayer;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
@@ -37,6 +41,18 @@ import zombie.util.list.PZArrayList;
  *     tout=1               exporte TOUS les objets ; par defaut, seules les
  *                          constructions de joueur (IsoThumpable) et les cases
  *                          qui en contiennent
+ *     position=<ms>        intervalle d'ecriture de la position du joueur,
+ *                          defaut 1000, 0 pour ne pas l'ecrire
+ *
+ * POSITION DU JOUEUR
+ *     Un second thread ecrit position.json a cote du fichier de sortie :
+ *         {"x":..,"y":..,"z":..,"a":angle,"v":0|1,"m":0|1,"t":horodatage_ms}
+ *     v = en vehicule, m = mort. Ecriture dans un .tmp puis renommage
+ *     atomique : le serveur de la carte ne lit jamais un fichier a moitie
+ *     ecrit. Ce thread est separe du balayage, qui peut prendre plusieurs
+ *     secondes sur une grande zone chargee ; la position, elle, doit suivre.
+ *     L'extension .json et non .ndjson est voulue : convertir.py lit tous les
+ *     .ndjson du dossier et ne doit pas prendre la position pour un releve.
  */
 public final class Agent {
 
@@ -46,6 +62,7 @@ public final class Agent {
     private static long periodeMs = 5000L;
     private static String sortie = DEFAUT_SORTIE;
     private static boolean tout = false;
+    private static long periodePositionMs = 1000L;
 
     // Signature de la derniere version vue de chaque case, pour n'ecrire que
     // ce qui a change. Cle = (x, y, z) empaquetes, valeur = hachage du contenu.
@@ -64,8 +81,15 @@ public final class Agent {
         t.setDaemon(true);                 // ne retient jamais l'arret du jeu
         t.setPriority(Thread.MIN_PRIORITY);
         t.start();
+        if (periodePositionMs > 0) {
+            Thread p = new Thread(Agent::bouclePosition, "pz-export-position");
+            p.setDaemon(true);
+            p.setPriority(Thread.MIN_PRIORITY);
+            p.start();
+        }
         System.out.println("[pz-export] agent actif, sortie=" + sortie
-                + " periode=" + (periodeMs / 1000) + "s tout=" + tout);
+                + " periode=" + (periodeMs / 1000) + "s tout=" + tout
+                + " position=" + periodePositionMs + "ms");
     }
 
     private static void lireOptions(String args) {
@@ -81,6 +105,11 @@ public final class Agent {
                     catch (NumberFormatException ignore) { }
                 }
                 case "sortie" -> sortie = val;
+                case "position" -> {
+                    try { periodePositionMs = Math.max(0L, Long.parseLong(val)); }
+                    catch (NumberFormatException ignore) { }
+                    if (periodePositionMs > 0 && periodePositionMs < 200) periodePositionMs = 200;
+                }
                 case "tout"   -> tout = "1".equals(val) || "true".equalsIgnoreCase(val);
             }
         }
@@ -203,6 +232,46 @@ public final class Agent {
             }
         }
         return ecrites;
+    }
+
+    /**
+     * Ecrit la position du joueur local, une fois par periode.
+     *
+     * Lecture depuis un thread qui n'est pas celui du jeu : les flottants
+     * peuvent etre lus pendant une mise a jour, ce qui donne au pire une
+     * position d'une image en retard. Sans consequence pour une carte, et
+     * sans aucun verrou pris sur le jeu.
+     */
+    private static void bouclePosition() {
+        Path fin = Paths.get(sortie).resolveSibling("position.json");
+        Path tmp = Paths.get(sortie).resolveSibling("position.json.tmp");
+        int erreurs = 0;
+        while (true) {
+            try {
+                Thread.sleep(periodePositionMs);
+                IsoPlayer j = IsoPlayer.getInstance();
+                if (j == null) continue;            // menu, chargement
+                float x = j.getX(), y = j.getY(), z = j.getZ();
+                if (!Float.isFinite(x) || !Float.isFinite(y) || x <= 0f || y <= 0f) continue;
+                String json = String.format(Locale.ROOT,
+                        "{\"x\":%.2f,\"y\":%.2f,\"z\":%.2f,\"a\":%.3f,\"v\":%d,\"m\":%d,\"t\":%d}",
+                        x, y, z, j.getDirectionAngleRadians(),
+                        j.getVehicle() != null ? 1 : 0, j.isDead() ? 1 : 0,
+                        System.currentTimeMillis());
+                Files.writeString(tmp, json, StandardCharsets.UTF_8);
+                Files.move(tmp, fin, StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+                erreurs = 0;
+            } catch (InterruptedException e) {
+                return;
+            } catch (Throwable e) {
+                // Une fois par minute au plus : a une ecriture par seconde, une
+                // erreur persistante noierait la console du jeu.
+                if (erreurs++ % 60 == 0) {
+                    System.out.println("[pz-export] position ignoree : " + e);
+                }
+            }
+        }
     }
 
     /** Echappement JSON minimal : les noms de sprites sont alphanumeriques. */

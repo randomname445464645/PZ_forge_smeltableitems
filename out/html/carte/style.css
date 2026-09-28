@@ -36,7 +36,7 @@ html, body {
 body.replie #carte { inset: 0; }
 #carte.glisse { cursor: grabbing; }
 
-#plan, #rues, #trace, #marqueurs, #bases {
+#plan, #rues, #trace, #marqueurs, #bases, #joueurCalque {
   position: absolute;
   left: 0; top: 0;
   width: 100%; height: 100%;
@@ -51,6 +51,7 @@ body.replie #carte { inset: 0; }
 #marqueurs { z-index: 3; pointer-events: none; }
 #trace  { z-index: 4; pointer-events: none; }
 #bases  { z-index: 5; pointer-events: none; }
+#joueurCalque { z-index: 6; pointer-events: none; }
 
 /* Tuiles : positionnees en pixels CSS, jamais dans un conteneur transforme. */
 .tuile {
@@ -590,3 +591,64 @@ body.pose-en-cours #carte { cursor: crosshair; }
 .etape button { font-size: 11px; padding: 1px 6px; }
 
 .mq-bulle-attendu { margin-top: 4px; color: #8fd14f; font-size: 11px; }
+
+/* ---- Joueur en direct (agent Java) ------------------------------------ */
+#suivre {
+  position: absolute;
+  top: 74px;
+  right: calc(var(--largeur-panneau) + 8px);
+  z-index: 11;
+  padding: 5px 10px;
+  line-height: 1;
+  font-size: 12px;
+  background: rgba(0, 0, 0, .65);
+  white-space: nowrap;
+}
+body.replie #suivre { right: 8px; }
+#suivre[hidden] { display: none; }
+#suivre.actif { background: #1f6fb8; border-color: #59b7ff; color: #fff; }
+
+.joueur { position: absolute; width: 0; height: 0; }
+.joueur[hidden] { display: none; }
+.joueur .point {
+  position: absolute; left: -7px; top: -7px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #59b7ff; border: 2px solid #fff;
+  box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.6);
+}
+.joueur .halo {
+  position: absolute; left: -18px; top: -18px;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(89,183,255,.25);
+  animation: joueur-pouls 1.6s ease-out infinite;
+}
+@keyframes joueur-pouls {
+  from { transform: scale(.5); opacity: 1; }
+  to   { transform: scale(1.4); opacity: 0; }
+}
+/* Fleche : un triangle pose a droite du point, tourne autour du centre. */
+.joueur .fleche {
+  position: absolute; left: 0; top: 0;
+  width: 0; height: 0;
+  transform-origin: 0 0;
+}
+.joueur .fleche::after {
+  content: ''; position: absolute; left: 9px; top: -6px;
+  border-left: 11px solid #fff; border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.8));
+}
+.joueur .fleche[hidden] { display: none; }
+.joueur span {
+  position: absolute; left: 0; top: 13px;
+  transform: translateX(-50%);
+  white-space: nowrap; font-size: 11px; font-weight: 600;
+  padding: 1px 6px; border-radius: 3px;
+  background: rgba(0,0,0,.75); color: #cfe7ff;
+}
+.joueur.vehicule .point { background: #e0a33c; }
+.joueur.mort .point { background: #777; }
+/* Position qui n'est plus en direct : on la montre, mais eteinte. */
+.joueur.perime .point { background: #6a6a72; border-color: #aaa; }
+.joueur.perime .halo { display: none; }
+.joueur.perime span { color: #9a9aa2; }

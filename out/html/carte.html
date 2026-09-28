@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#14161a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="pwa/icone-192.png">
-<link rel="stylesheet" href="carte/style.css?v=16">
+<link rel="stylesheet" href="carte/style.css?v=17">
 </head>
 <body>
 
@@ -19,10 +19,12 @@
   <canvas id="trace"></canvas>
   <div id="marqueurs"></div>
   <div id="bases"></div>
+  <div id="joueurCalque"></div>
 </div>
 
 <button id="replier" title="Replier ou deplier le panneau">&#9776;</button>
 <button id="bascule" hidden title="Changer de vue (touche V)">vue isometrique</button>
+<button id="suivre" hidden title="Centrer la carte sur toi et te suivre (touche F). Glisser la carte arrete le suivi.">me suivre</button>
 <div id="consigne" hidden></div>
 
 <div id="hud">
@@ -114,6 +116,10 @@
         <input type="checkbox" id="calqueBases" checked> mes bases
         <i class="nb" id="nbBases"></i>
       </label>
+      <label class="case-calque">
+        <input type="checkbox" id="calqueJoueur" checked> ma position en direct
+      </label>
+      <div class="aide" id="etatJoueur"></div>
       <div class="ligne-sync" id="ligneSync" hidden>
         <button id="syncConstructions" title="Relire le releve de l'agent et rafraichir le calque">synchroniser</button>
         <span class="reel" id="etatSync"></span>
@@ -150,6 +156,6 @@
   </section>
 </div>
 
-<script type="module" src="carte/app.js?v=36"></script>
+<script type="module" src="carte/app.js?v=37"></script>
 </body>
 </html>
