@@ -26,8 +26,9 @@ CONTENEURS
     est maintenant marque et ouvrable.
 
 CHANCE AFFICHEE
-    poids de l'objet / somme des poids de sa table, multiplie par le
-    weightChance de la table quand il y en a un. C'est la chance qu'un tirage
+    poids de l'objet / somme des poids de sa table, multiplie par la chance
+    que le meuble tire cette table (son weightChance rapporte a celui des
+    tables concurrentes, regle du jeu). C'est la chance qu'un tirage
     de ce meuble donne cet objet. Le nombre de tirages depend de la taille du
     conteneur et du reglage de loot du serveur, donc ce n'est PAS la
     probabilite de trouver l'objet dans la piece : c'est un ordre de grandeur,
@@ -150,6 +151,7 @@ def main():
     import verification
     proc, dist, mods = verification.charger_tables(pz_root)
     print('tables des mods : %s' % (', '.join(mods) or 'aucune'))
+    T = verification.Tables(proc, dist)
     noms = charger_noms(pz_root)
     def nom_fr(o):
         # Objets de mods : 'Trelai.TrelaiGoldBar'. Le jeu n'a pas leur nom
@@ -211,13 +213,22 @@ def main():
                 if total > 0:
                     chances[faux] = {n: p / total for n, p in paires}
                 entrees = [{'name': faux}]
+            # Chance REELLE que le meuble tire chaque table : weightChance
+            # rapporte a la somme des candidates, une table sans poids valant
+            # 1, comme dans le jeu (verification.Tables.tables_meuble). Sans
+            # tuile precise : c'est le cas d'un meuble ordinaire de la piece.
+            # Avant le 29/09 on affichait weightChance/100, comme si les tables
+            # etaient tirees independamment.
+            probas = {n: pr for n, pr, *_ in T.tables_meuble(piece, meuble)}
             for e in entrees:
                 nom_table = e.get('name')
                 table = chances.get(nom_table)
                 if not table:
                     continue
                 tables_citees.add(nom_table)
-                facteur = float(e.get('weightChance', 100)) / 100.0
+                facteur = probas.get(nom_table, 1.0 if nom_table.startswith(piece + '/') else 0.0)
+                if facteur <= 0:
+                    continue        # table imposee par une zone ou un objet : hors cas general
                 detail.append([meuble, nom_table, round(facteur * 100, 1)])
                 cible = (secours if partage.get(nom_table, 0) > SEUIL_PARTAGE
                          else resume)

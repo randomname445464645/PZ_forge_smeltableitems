@@ -1,6 +1,6 @@
 // Chargement, filtrage, affichage et liste des marqueurs.
 //
-// markers.json contient 2144 entrees {x, y, z, cat, t, d}, en coordonnees
+// markers.json contient 2121 entrees {x, y, z, cat, t, d}, en coordonnees
 // MONDE (celles que le jeu affiche). Verifie contre rooms/marks.json de
 // pzmap2dzi : les rectangles de pieces tombent exactement sur les batiments,
 // et les marqueurs tombent dans les bonnes pieces.
@@ -36,17 +36,17 @@ export const CATEGORIES = [
 const FILTRES_DEFAUT = ['top', 'or', 'billets', 'valeur', 'armes'];
 
 // Les etiquettes se chevauchent vite dans les zones denses : on ne les affiche
-// en masse qu'a partir de 4 px par case. Les categories rares (208 marqueurs en
+// en masse qu'a partir de 4 px par case. Les categories rares (201 marqueurs en
 // tout) restent nommees bien plus tot, c'est le cas ou on veut lire le nom.
 const ZOOM_ETIQUETTES = 2;
 const ZOOM_ETIQUETTES_RARES = -1;
 const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 
 // Priorite de dessin. L'ordre de CATEGORIES va du plus rare au plus courant :
-// 'top' (24 marqueurs), 'or' (86), 'billets' (98)... 'labo' (76). On s'en sert
+// 'top' (24 marqueurs), 'or' (79), 'billets' (98)... 'labo' (76). On s'en sert
 // comme z-index.
 //
-// Necessaire parce que 72 positions portent plusieurs marqueurs exactement aux
+// Necessaire parce que 65 positions portent plusieurs marqueurs exactement aux
 // memes coordonnees, dont 109 paires or + valeur et 21 billets + valeur.
 // Sans priorite c'est l'ordre du fichier qui tranche, et 'valeur' (155
 // entrees) y arrive apres, donc masque systematiquement la categorie rare.
@@ -54,7 +54,7 @@ const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 // disparaissait sous la pastille de la piece.
 const PRIORITE = new Map(CATEGORIES.map((c, i) => [c.cle, CATEGORIES.length - i]));
 
-// Doublons de position. 72 endroits portent plusieurs marqueurs aux memes
+// Doublons de position. 65 endroits portent plusieurs marqueurs aux memes
 // coordonnees exactes : on les ecarte lateralement et on pose derriere eux une
 // boite noire translucide, pour qu'on voie d'un coup d'oeil qu'il y en a
 // plusieurs et lesquels.
@@ -303,7 +303,7 @@ function creerElement(index, m) {
   el.className = 'mq mq-' + m.cat;
   el.dataset.index = index;
   // Remplie au survol et pas ici : la table de loot arrive apres les
-  // marqueurs, et construire 2144 bulles d'avance ne sert a rien.
+  // marqueurs, et construire 2121 bulles d'avance ne sert a rien.
   el.addEventListener('mouseenter', () => remplirBulle(m, el));
   el.addEventListener('mouseleave', cacherBulleBientot);
   // Plus la categorie est rare, plus elle passe devant.

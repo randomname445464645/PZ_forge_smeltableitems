@@ -276,36 +276,82 @@ class Tables:
             return a['other'], 'all/other'
         return None, None
 
-    def esperance_meuble(self, piece, type_meuble):
-        """{categorie: nombre attendu} dans UN meuble de ce type, par remplissage.
+    def tables_meuble(self, piece, type_meuble, tuiles=frozenset(), pieces_batiment=frozenset()):
+        """Tables qu'UN meuble peut tirer : [(nom, proba, min, max, tirages)].
 
-        tirages de la table x part de l'objet x chance que la table soit
-        choisie, sur la meilleure table du meuble. Une part par tirage ne
-        suffit pas : la table vaultgoldstack de Trelai n'a que 0,35 % de
-        lingots par tirage, mais elle tire 50 fois par coffre.
+        Regle lue instruction par instruction dans le code du jeu
+        (ItemPickerJava.rollProceduralItemInternal, getDistribInHashMap) :
+
+          - le meuble tire UNE table, au prorata de weightChance parmi les
+            candidates ; sans weightChance, une table vaut 1 et non 100 ;
+          - forceForTiles : si une tuile de la case du meuble est listee, la
+            table est IMPOSEE. Sinon elle reste une candidate ordinaire ;
+          - forceForRooms : imposee si le batiment a une piece de ce nom,
+            sinon candidate ordinaire ;
+          - forceForItems (tuile presente dans la piece) et forceForZones
+            (zone de la carte) : imposees si la condition est remplie, sinon
+            EXCLUES. Les zones ne sont pas lues ici : ces entrees sont
+            ecartees, ce qui ne peut que sous-estimer.
+          - plusieurs tables imposees : la derniere de la liste l'emporte,
+            chaque correspondance vidant la liste des imposees.
+
+        tuiles : noms des tuiles posees sur la case du meuble.
+        pieces_batiment : noms des pieces du meme batiment.
         """
-        r = dict.fromkeys(CATEGORIES, 0.0)
         spec, _ = self.meuble(piece, type_meuble)
         if not spec:
-            return r
+            return []
+        if spec.get('items') and not spec.get('procList'):
+            tmp = '__%s/%s' % (piece, type_meuble)
+            self.contenants[tmp] = spec
+            return [(tmp, 1.0, 0, 99, float(spec.get('rolls', 1) or 1))]
+        impose = None
+        entrees = []
         for e in (spec.get('procList') or []):
             t = self.proc.get(e.get('name'))
             if not isinstance(t, dict):
                 continue
-            k = float(t.get('rolls', 1) or 1) * float(e.get('weightChance', 100)) / 100
-            parts = self.parts(e.get('name'))
+            liste = lambda k: [x for x in str(e.get(k) or '').split(';') if x]
+            tir = float(t.get('rolls', 1) or 1)
+            mx = e.get('max')
+            mx = int(mx) if isinstance(mx, (int, float)) and mx >= 0 else 99
+            mn = int(e.get('min') or 0)
+            ft, fr = liste('forceForTiles'), liste('forceForRooms')
+            fi, fz = liste('forceForItems'), liste('forceForZones')
+            if ft and tuiles.intersection(ft):
+                impose = (e.get('name'), 1.0, mn, mx, tir)
+            if fr and pieces_batiment.intersection(fr):
+                impose = (e.get('name'), 1.0, mn, mx, tir)
+            if fi or fz:
+                continue                    # jamais candidate ordinaire
+            wc = e.get('weightChance')
+            wc = wc if isinstance(wc, (int, float)) and wc > 0 else 1
+            entrees.append((e.get('name'), float(wc), mn, mx, tir))
+        if impose:
+            return [impose]
+        total = sum(x[1] for x in entrees)
+        if not total:
+            return []
+        return [(n, w / total, mn, mx, r) for n, w, mn, mx, r in entrees]
+
+    def esperance_meuble(self, piece, type_meuble):
+        """{categorie: nombre attendu} dans UN meuble de ce type, sans plafond de piece."""
+        r = dict.fromkeys(CATEGORIES, 0.0)
+        for nom, proba, _, _, tirages in self.tables_meuble(piece, type_meuble):
+            parts = self.parts(nom)
             for c in CATEGORIES:
-                r[c] = max(r[c], parts[c] * k)
-            if e.get('name') in TABLES_LABO:
-                r['labo'] = max(r['labo'], k)
-        if spec.get('items'):
-            tmp = '__%s/%s' % (piece, type_meuble)
-            self.contenants[tmp] = spec
-            k = float(spec.get('rolls', 1) or 1)
-            parts = self.parts(tmp)
-            for c in CATEGORIES:
-                r[c] = max(r[c], parts[c] * k)
+                r[c] += proba * tirages * parts[c]
+            if nom in TABLES_LABO:
+                r['labo'] += proba * tirages
         return r
+
+
+
+class Meubles(collections.Counter):
+    """Counter {type de meuble: nombre} qui garde aussi chaque meuble."""
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.conteneurs = []
 
 
 class Verificateur:
@@ -381,8 +427,13 @@ class Verificateur:
                 del self._cellules[k]
 
     def types_meubles(self, nom, cx, cy, room):
-        """Compte des types de meubles de rangement dans une piece."""
-        types = collections.Counter()
+        """Compte des types de meubles de rangement dans une piece.
+
+        Renvoie un Counter {type: nombre}, qui porte aussi .conteneurs, la
+        liste (type, tuiles de la case) de chaque meuble : il faut les tuiles
+        pour savoir si une table forceForTiles s'impose.
+        """
+        types = Meubles()
         z = room.get('layer', 0)
         for (rx, ry, w, hh) in room['rects']:
             for wx in range(cx * 256 + rx, cx * 256 + rx + w):
@@ -390,23 +441,79 @@ class Verificateur:
                     c = self.cellule(nom, wx // 256, wy // 256)
                     if not c:
                         continue
-                    for t in (c.get_square(wx % 256, wy % 256, z) or []):
+                    case = list(c.get_square(wx % 256, wy % 256, z) or [])
+                    if not case:
+                        continue
+                    tuiles = None
+                    for t in case:
                         m = self.meubles.get(t)
                         if m:
                             types[m] += 1
+                            if tuiles is None:
+                                tuiles = frozenset(case)
+                            types.conteneurs.append((m, tuiles))
         return types
 
-    def esperance(self, piece, types):
+    def esperance(self, piece, types, pieces_batiment=frozenset()):
         """{categorie: nombre attendu} en vidant la piece une fois.
 
         Chaque tuile de rangement est un conteneur a part dans le jeu : un
-        comptoir sur deux cases, ce sont deux conteneurs.
+        comptoir sur deux cases, ce sont deux conteneurs. On evalue chaque
+        meuble avec les tuiles de SA case (forceForTiles).
+
+        Le jeu compte, PIECE par piece, combien de meubles ont deja tire
+        chaque table : une table max=1 ne remplit qu'un meuble de la piece
+        (la mallette du labo de drogue, par exemple), et une table min=1 est
+        servie en priorite. On estime donc, pour chaque table, le nombre de
+        meubles qui la tirent : somme des probas, plafonnee a max, relevee a
+        min s'il y a assez de meubles.
         """
+        detail = getattr(types, 'conteneurs', None)
+        if detail is None:
+            detail = [(t, frozenset()) for t, n in types.items() for _ in range(n)]
+        usage = {}          # table -> [meubles attendus, min, max, tirages, eligibles]
+        for t, tuiles in detail:
+            for nom, proba, mn, mx, tirages in self.tables.tables_meuble(
+                    piece, t, tuiles, pieces_batiment):
+                u = usage.setdefault(nom, [0.0, 0, 0, tirages, 0])
+                u[0] += proba
+                u[1] = max(u[1], mn)
+                u[2] = max(u[2], mx)
+                u[4] += 1
         r = dict.fromkeys(CATEGORIES, 0.0)
-        for t, n in types.items():
-            e = self.tables.esperance_meuble(piece, t)
+        for nom, (attendu, mn, mx, tirages, eligibles) in usage.items():
+            k = max(min(attendu, mx), min(mn, eligibles))
+            parts = self.tables.parts(nom)
             for c in CATEGORIES:
-                r[c] += n * e[c]
+                r[c] += k * tirages * parts[c]
+            if nom in TABLES_LABO:
+                r['labo'] += k * tirages
+        return r
+
+    def esperance_objets(self, piece, types, cibles, pieces_batiment=frozenset()):
+        """{objet: nombre attendu} pour des objets precis, meme regle
+        qu'esperance() : une table par meuble, plafonds min/max de la piece.
+        Les conteneurs (sacs, mallettes) ne sont pas ouverts ici."""
+        detail = getattr(types, 'conteneurs', None)
+        if detail is None:
+            detail = [(t, frozenset()) for t, n in types.items() for _ in range(n)]
+        usage = {}
+        for t, tuiles in detail:
+            for nom, proba, mn, mx, tirages in self.tables.tables_meuble(
+                    piece, t, tuiles, pieces_batiment):
+                u = usage.setdefault(nom, [0.0, 0, 0, tirages, 0])
+                u[0] += proba
+                u[1] = max(u[1], mn)
+                u[2] = max(u[2], mx)
+                u[4] += 1
+        r = dict.fromkeys(cibles, 0.0)
+        for nom, (attendu, mn, mx, tirages, eligibles) in usage.items():
+            t = self.tables.proc.get(nom) or self.tables.contenants.get(nom)
+            o = objets(t) if isinstance(t, dict) else {}
+            total = sum(o.values()) or 1
+            k = max(min(attendu, mx), min(mn, eligibles))
+            for c in cibles:
+                r[c] += k * tirages * o.get(c, 0) / total
         return r
 
     def pompes(self, nom):
