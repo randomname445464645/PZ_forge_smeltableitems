@@ -82,7 +82,13 @@ def main():
             continue
         e = verif.esperance(piece, types)
         info.update({'attendus': {k: round(v, 2) for k, v in e.items()}})
-        if m['cat'] == 'essence':
+        if m['cat'] == 'metal':
+            o = verif.esperance_objets(piece, types, ('SheetMetal', 'SmallSheetMetal'))
+            equiv = o['SheetMetal'] + o['SmallSheetMetal'] / 4
+            info['plaques'] = round(equiv, 1)
+            rapport.append((i, 'ok' if equiv >= 5.0 else 'sans-contenu',
+                            '' if equiv >= 5.0 else 'moins de 5 plaques', info))
+        elif m['cat'] == 'essence':
             if verif.pompe_proche(nom, cx, cy, r, RAYON_POMPE) is None:
                 rapport.append((i, 'sans-contenu', 'pas de pompe', info))
             else:
@@ -98,7 +104,7 @@ def main():
     for i, verdict, _, _ in rapport:
         par_cat[marqueurs[i]['cat']][verdict] += 1
     print('%-9s %6s %6s %6s %8s %8s' % ('categorie', 'total', 'ok', 'vide', 'sans', 'hors'))
-    for cat in ['top', 'or', 'billets', 'valeur', 'armes', 'medical', 'outils',
+    for cat in ['top', 'or', 'billets', 'valeur', 'metal', 'armes', 'medical', 'outils',
                 'bouffe', 'essence', 'labo']:
         c = par_cat.get(cat, {})
         print('%-9s %6d %6d %6d %8d %8d' % (cat, sum(c.values()), c.get('ok', 0),

@@ -1,6 +1,6 @@
 // Chargement, filtrage, affichage et liste des marqueurs.
 //
-// markers.json contient 2121 entrees {x, y, z, cat, t, d}, en coordonnees
+// markers.json contient 2212 entrees {x, y, z, cat, t, d}, en coordonnees
 // MONDE (celles que le jeu affiche). Verifie contre rooms/marks.json de
 // pzmap2dzi : les rectangles de pieces tombent exactement sur les batiments,
 // et les marqueurs tombent dans les bonnes pieces.
@@ -23,6 +23,7 @@ export const CATEGORIES = [
   { cle: 'or',      nom: 'or',                 couleur: '#d8a24a' },
   { cle: 'billets', nom: 'billets',            couleur: '#5fbf72' },
   { cle: 'valeur',  nom: 'banques, bijoux',    couleur: '#c98bdc' },
+  { cle: 'metal',   nom: 'métal, plaques',     couleur: '#8fa8bf' },
   { cle: 'armes',   nom: 'armes, militaire',   couleur: '#d05a4a' },
   { cle: 'medical', nom: 'medical',            couleur: '#e86f9e' },
   { cle: 'outils',  nom: 'outils, quincaille', couleur: '#e0a33c' },
@@ -33,7 +34,7 @@ export const CATEGORIES = [
 
 // Categories cochees a la premiere ouverture : les rares, sinon l'ecran est
 // noir de pastilles.
-const FILTRES_DEFAUT = ['top', 'or', 'billets', 'valeur', 'armes'];
+const FILTRES_DEFAUT = ['top', 'or', 'billets', 'valeur', 'metal', 'armes'];
 
 // Les etiquettes se chevauchent vite dans les zones denses : on ne les affiche
 // en masse qu'a partir de 4 px par case. Les categories rares (201 marqueurs en
@@ -46,7 +47,7 @@ const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 // 'top' (24 marqueurs), 'or' (79), 'billets' (98)... 'labo' (76). On s'en sert
 // comme z-index.
 //
-// Necessaire parce que 65 positions portent plusieurs marqueurs exactement aux
+// Necessaire parce que 117 positions portent plusieurs marqueurs exactement aux
 // memes coordonnees, dont 109 paires or + valeur et 21 billets + valeur.
 // Sans priorite c'est l'ordre du fichier qui tranche, et 'valeur' (155
 // entrees) y arrive apres, donc masque systematiquement la categorie rare.
@@ -54,7 +55,7 @@ const CATEGORIES_RARES = new Set(['top', 'or', 'billets']);
 // disparaissait sous la pastille de la piece.
 const PRIORITE = new Map(CATEGORIES.map((c, i) => [c.cle, CATEGORIES.length - i]));
 
-// Doublons de position. 65 endroits portent plusieurs marqueurs aux memes
+// Doublons de position. 117 endroits portent plusieurs marqueurs aux memes
 // coordonnees exactes : on les ecarte lateralement et on pose derriere eux une
 // boite noire translucide, pour qu'on voie d'un coup d'oeil qu'il y en a
 // plusieurs et lesquels.
@@ -118,9 +119,12 @@ export async function chargerMarqueurs(url = 'markers.json') {
     .then(d => { loots = d; initTableLoot(d); })
     .catch(() => { loots = null; });
 
+  // Une categorie absente de la sauvegarde est une categorie AJOUTEE depuis :
+  // elle prend sa valeur par defaut. Sans ca, 'metal' serait restee decochee
+  // chez tous ceux qui avaient deja ouvert la carte.
   const sauvegarde = lireFiltres();
   for (const c of CATEGORIES) {
-    etat.filtres[c.cle] = sauvegarde
+    etat.filtres[c.cle] = (sauvegarde && c.cle in sauvegarde)
       ? !!sauvegarde[c.cle]
       : FILTRES_DEFAUT.includes(c.cle);
   }
@@ -222,6 +226,11 @@ function remplirBulle(m, el) {
   let attendu = '';
   if (m.pompe !== undefined) {
     attendu = m.pompe === 0 ? 'pompe a essence sur place' : `pompe a essence a ${m.pompe} cases`;
+  } else if (m.cat === 'metal') {
+    const n = m.n >= 10 ? Math.round(m.n) : m.n;
+    attendu = `~${n} plaques en metal`
+      + (m.ps >= 0.5 ? ` et ~${m.ps >= 10 ? Math.round(m.ps) : m.ps} petites` : '')
+      + ' en vidant la piece (estimation). Une plaque se scie en 4 petites.';
   } else if (m.n) {
     const n = m.n >= 10 ? Math.round(m.n) : m.n;
     attendu = `~${n} ${QUOI[m.cat] || 'objets'} en vidant la piece (estimation)`;
@@ -242,7 +251,13 @@ function remplirBulle(m, el) {
     // Un contenu garanti, comme la palette de lingots, n'a pas de tirage :
     // afficher "100 %" a cote donnerait a croire qu'il y en a un.
     const garanti = liste.length === 1 && liste[0][1] >= 100;
-    entete.textContent = garanti ? 'contient' : 'peut contenir, par tirage de meuble';
+    // La liste decrit les meubles PROPRES a ce type de piece. Les meubles que
+    // la piece ne liste pas (souvent des caisses) tirent dans la table
+    // generique du jeu et n'y figurent pas : un grand entrepot plein de
+    // caisses annonce ~194 plaques au-dessus, mais 4 % ici. Le chiffre du
+    // dessus, lui, vient des meubles reels de CETTE piece.
+    entete.textContent = garanti ? 'contient'
+      : 'meubles propres a ce type de piece, chance par tirage';
     b.appendChild(entete);
 
     const table = document.createElement('table');
@@ -303,7 +318,7 @@ function creerElement(index, m) {
   el.className = 'mq mq-' + m.cat;
   el.dataset.index = index;
   // Remplie au survol et pas ici : la table de loot arrive apres les
-  // marqueurs, et construire 2121 bulles d'avance ne sert a rien.
+  // marqueurs, et construire 2212 bulles d'avance ne sert a rien.
   el.addEventListener('mouseenter', () => remplirBulle(m, el));
   el.addEventListener('mouseleave', cacherBulleBientot);
   // Plus la categorie est rare, plus elle passe devant.

@@ -230,8 +230,15 @@ def main():
                 if facteur <= 0:
                     continue        # table imposee par une zone ou un objet : hors cas general
                 detail.append([meuble, nom_table, round(facteur * 100, 1)])
-                cible = (secours if partage.get(nom_table, 0) > SEUIL_PARTAGE
-                         else resume)
+                # Mobilier generique = table partagee par beaucoup de pieces
+                # ET a plusieurs sortes d'objets. Une caisse specialisee a
+                # objet unique (CrateSheetMetal : que des plaques) n'est pas du
+                # remplissage meme si dix types de pieces la citent : sans
+                # cette nuance, l'expedition de metal annoncait barres et
+                # tuyaux, mais pas ses plaques.
+                generique = (partage.get(nom_table, 0) > SEUIL_PARTAGE
+                             and len(table) > 3)
+                cible = secours if generique else resume
                 for objet, part in table.items():
                     c = part * facteur
                     if c > cible.get(objet, 0):

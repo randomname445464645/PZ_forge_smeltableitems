@@ -39,7 +39,7 @@ const COQUILLE = [
   '/pwa/icone-512-maskable.png',
   '/icons/top.png', '/icons/or.png', '/icons/billets.png', '/icons/valeur.png',
   '/icons/armes.png', '/icons/medical.png', '/icons/outils.png',
-  '/icons/bouffe.png', '/icons/essence.png', '/icons/labo.png',
+  '/icons/bouffe.png', '/icons/essence.png', '/icons/labo.png', '/icons/metal.png',
 ];
 
 self.addEventListener('install', e => {

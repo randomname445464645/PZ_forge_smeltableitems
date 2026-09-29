@@ -367,6 +367,7 @@ class Verificateur:
         self.tables = Tables(proc, dist, self.classes)
         self.meubles = tuiles_conteneurs.charger(pz_root, [WORKSHOP])
         self.pompes_tuiles = set(tuiles_conteneurs.POMPES)
+        self.pieces_metal = set()     # rempli par extraire-marqueurs.py
         self._pompes = {}
         self._cellules = {}
 
@@ -489,6 +490,23 @@ class Verificateur:
             if nom in TABLES_LABO:
                 r['labo'] += k * tirages
         return r
+
+    def pieces_pour(self, cibles):
+        """Noms de pieces dont un meuble peut tirer une table contenant l'un
+        des objets. 'all' en fait partie si la table generique en contient :
+        les pieces nommees 'all' sur la carte sont alors candidates."""
+        tables = {n for n, t in self.tables.proc.items()
+                  if isinstance(t, dict) and set(objets(t)) & set(cibles)}
+        pieces = set()
+        for p, m in self.tables.dist.items():
+            if not isinstance(m, dict) or 'items' in m:
+                continue
+            for s in m.values():
+                if isinstance(s, dict) and any(e.get('name') in tables
+                                               for e in (s.get('procList') or [])):
+                    pieces.add(p)
+                    break
+        return pieces
 
     def esperance_objets(self, piece, types, cibles, pieces_batiment=frozenset()):
         """{objet: nombre attendu} pour des objets precis, meme regle

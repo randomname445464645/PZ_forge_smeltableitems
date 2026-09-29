@@ -197,6 +197,32 @@ SEUIL_ESPERANCE = 1.0
 # de 30 cases, puis quasiment rien entre 30 et 90.
 RAYON_POMPE = 30
 
+# Categorie 'metal' : ou trouver des plaques en metal en quantite.
+# Les pieces candidates ne sont PAS listees a la main : ce sont celles dont
+# un meuble peut tirer une table contenant ces objets (calcule au demarrage
+# depuis les tables du jeu et des mods). Chaque piece est ensuite verifiee
+# sur ses meubles reels, comme les autres categories.
+# On compte en equivalent plaques : une petite plaque vaut 1/4, puisqu'une
+# plaque se scie en 4 petites (recette SawSteelSheetIntoSmallSheets).
+# Seuil mesure : 5 equivalents donnent 91 pieces (48 entrepots, 16
+# metalleries, 6 expeditions de metal, 4 ateliers de soudure...) ; 2 en
+# donnaient 150, dont des dizaines de quincailleries a 2 plaques.
+OBJETS_METAL = ('SheetMetal', 'SmallSheetMetal')
+SEUIL_METAL = 5.0
+LIBELLES_METAL = {
+    'metalshipping':    'Expédition de métal',
+    'metalshop':        'Métallerie',
+    'metalfabrication': 'Fabrication métallique',
+    'weldingworkshop':  'Atelier de soudure',
+    'weldingstorage':   'Réserve de soudure',
+    'garagestorage':    'Réserve de garage',
+    'toolstorestorage': 'Réserve de quincaillerie',
+    'shed':             'Abri',
+    'storage':          'Réserve',
+    'studio':           'Atelier',
+    'all':              'Réserve sans nom',
+}
+
 FORMAT_EXTRAIT = re.compile(r'^[A-Za-z0-9_]+ · \d+x\d+ · ')
 
 
@@ -241,7 +267,8 @@ def extraire(nom_carte, chemin, libelle, verif, bilan):
             info = PIECES.get(nom)
             rare = PIECES_RARES.get(nom)
             sommet = PIECES_TOP.get(nom)
-            if not info and not rare and not sommet:
+            metal = nom in verif.pieces_metal
+            if not info and not rare and not sommet and not metal:
                 continue
             rects = r.get('rects') or []
             if not rects:
@@ -251,6 +278,24 @@ def extraire(nom_carte, chemin, libelle, verif, bilan):
             if not verif.a_du_loot(nom, types):
                 bilan['sans meuble a loot'] += (1 if info else 0) + (1 if rare else 0) + (1 if sommet else 0)
                 continue
+
+            if metal:
+                e = verif.esperance_objets(nom, types, OBJETS_METAL)
+                equiv = e['SheetMetal'] + e['SmallSheetMetal'] / 4
+                if equiv >= SEUIL_METAL:
+                    xm, ym, wm, hm = max(rects, key=lambda t: t[2] * t[3])
+                    titre = LIBELLES_METAL.get(nom) or (info[1] if info else nom)
+                    marqueurs.append({
+                        'x': cx * 256 + xm + wm // 2, 'y': cy * 256 + ym + hm // 2,
+                        'z': r.get('layer', 0),
+                        'd': '%s · %dx%d · %s' % (nom, wm, hm, libelle),
+                        'cat': 'metal', 't': titre,
+                        'n': round(e['SheetMetal'], 1),
+                        'ps': round(e['SmallSheetMetal'], 1),
+                    })
+                    bilan['gardees'] += 1
+                if not info and not rare and not sommet:
+                    continue
             attendus = verif.esperance(nom, types)
 
             # Le plus grand rectangle porte le marqueur, comme a l'origine.
@@ -402,6 +447,8 @@ def main():
     print('chargement des tables de loot et des tuiles de rangement...')
     verif = verification.Verificateur(cartes, pz_root)
     print('  mods : %s' % (', '.join(verif.mods) or 'aucun'))
+    verif.pieces_metal = verif.pieces_pour(OBJETS_METAL)
+    print('  pieces pouvant donner des plaques : %d' % len(verif.pieces_metal))
 
     # Marqueurs ecrits a la main : memes regles que les extraits. Un seul
     # changement de categorie, justifie ci-dessous.

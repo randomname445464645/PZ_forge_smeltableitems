@@ -190,6 +190,7 @@ body.replie #carte { inset: 0; }
 .mq-or      i { background-color: #d8a24a; background-image: url(../icons/or.png?v=4); }
 .mq-billets i { background-color: #5fbf72; background-image: url(../icons/billets.png?v=4); }
 .mq-valeur  i { background-color: #c98bdc; background-image: url(../icons/valeur.png?v=4); }
+.mq-metal   i { background-color: #8fa8bf; background-image: url(../icons/metal.png?v=4); }
 .mq-armes   i { background-color: #d05a4a; background-image: url(../icons/armes.png?v=4); }
 .mq-medical i { background-color: #e86f9e; background-image: url(../icons/medical.png?v=4); }
 .mq-outils  i { background-color: #e0a33c; background-image: url(../icons/outils.png?v=4); }
